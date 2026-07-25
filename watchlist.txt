@@ -1,0 +1,11 @@
+# Un ticker por linea. Lineas que empiezan con # se ignoran.
+AAPL
+MSFT
+GOOGL
+AMZN
+NVDA
+META
+TSLA
+JPM
+V
+UNH
