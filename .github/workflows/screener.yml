@@ -22,3 +22,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Opcionales (ver README): si no se configuran, el informe funciona
+          # igual que antes, sin el respaldo de estas fuentes adicionales.
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}

@@ -12,6 +12,7 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
 ## Índice
 
 - [¿Qué hace?](#qué-hace)
+- [Fuentes de datos combinadas](#fuentes-de-datos-combinadas)
 - [Criterios del ranking](#criterios-del-ranking)
 - [Configuración](#configuración)
   - [1. Crear el bot de Telegram](#1-crear-el-bot-de-telegram)
@@ -46,6 +47,24 @@ Para cada ticker de la [watchlist](watchlist.txt), `screener.py`:
 Además, `bot_listener.py` escucha el botón *"Generar informe ahora"* (o el
 comando `/informe`) en Telegram para disparar el informe bajo demanda, fuera
 del horario programado.
+
+## Fuentes de datos combinadas
+
+Yahoo Finance (vía `yfinance`) es la fuente principal, pero no es una API
+oficial (es scraping) y tiene huecos conocidos: no publica insider trading
+fuera de EE.UU., y en acciones con poca cobertura de analistas (small/micro
+caps) a menudo le faltan crecimiento y recomendación. Para eso, el informe
+combina dos fuentes adicionales, ambas **opcionales y con fallback**: si no
+están configuradas o fallan, todo sigue funcionando exactamente igual que
+solo con Yahoo.
+
+| Fuente | Qué aporta | Configuración |
+|---|---|---|
+| **SEC EDGAR** | Fuente PRIMARIA y oficial de insider buying (Form 4) para acciones que reportan a la SEC (EE.UU.). Gratis, sin API key. Si Yahoo tiene el dato pero EDGAR no encuentra el ticker o falla la consulta, se usa Yahoo como respaldo. No amplía cobertura fuera de EE.UU. (esas empresas no presentan Form 4 en ningún sitio). | Opcional pero recomendado: variable `SEC_EDGAR_USER_AGENT` con algo que te identifique (la SEC exige un User-Agent descriptivo), ej. `"MiScreener contacto@tudominio.com"`. Sin ella se usa un valor genérico que funciona pero no es buena práctica. |
+| **Financial Modeling Prep (FMP)** | Respaldo de crecimiento, número de analistas y recomendación **solo** cuando Yahoo no tiene cobertura suficiente. Cuando se usa, aparece marcado como `(via FMP)` en la sección "Descripción detallada por acción" del PDF. | Requiere una API key propia (gratis en [financialmodelingprep.com](https://site.financialmodelingprep.com), plan free = 250 peticiones/día). Variable `FMP_API_KEY`. Sin ella, esta llamada se salta directamente. |
+
+Añade estas variables como secrets de GitHub (igual que `TELEGRAM_BOT_TOKEN`)
+o en tu `.env` local si quieres activarlas.
 
 ## Criterios del ranking
 
@@ -99,6 +118,8 @@ En **Settings → Secrets and variables → Actions** del repositorio, añade:
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Token del bot obtenido de BotFather |
 | `TELEGRAM_CHAT_ID` | ID del chat/canal donde se enviará el informe |
+| `FMP_API_KEY` (opcional) | Ver [Fuentes de datos combinadas](#fuentes-de-datos-combinadas) |
+| `SEC_EDGAR_USER_AGENT` (opcional) | Ver [Fuentes de datos combinadas](#fuentes-de-datos-combinadas) |
 
 Para desarrollo local, crea un archivo `.env` en la raíz del proyecto (no se
 sube al repo) con las mismas variables:
@@ -106,6 +127,8 @@ sube al repo) con las mismas variables:
 ```env
 TELEGRAM_BOT_TOKEN=tu_token
 TELEGRAM_CHAT_ID=tu_chat_id
+FMP_API_KEY=tu_api_key_de_fmp
+SEC_EDGAR_USER_AGENT=MiScreener contacto@tudominio.com
 ```
 
 ### 3. Ejecutar

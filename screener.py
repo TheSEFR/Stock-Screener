@@ -8,8 +8,10 @@ Uso: python screener.py
 import json
 import os
 import unicodedata
+import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+from functools import lru_cache
 
 import pandas as pd
 import requests
@@ -17,6 +19,11 @@ import yfinance as yf
 from deep_translator import GoogleTranslator
 from dotenv import load_dotenv
 from fpdf import FPDF
+
+# Debe ejecutarse ANTES de leer cualquier os.environ.get() a nivel de modulo
+# (ej. FMP_API_KEY, SEC_EDGAR_USER_AGENT mas abajo); si no, un .env local
+# nunca llegaria a tiempo para esas constantes.
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.txt")
 INSIDER_LOOKBACK_DAYS = 90
@@ -64,6 +71,166 @@ NEGATIVE_WORDS = (
     "loss", "losses", "layoffs", "investigation",
 )
 
+# --- Fuentes de datos combinadas (ademas de Yahoo Finance) --------------
+#
+# SEC EDGAR (gratis, oficial, sin API key): fuente PRIMARIA de insider
+# buying para acciones que reportan a la SEC (EEUU). Solo exige identificarse
+# con un User-Agent descriptivo (politica de uso justo de la SEC); si no se
+# configura, se usa un valor generico que funciona pero es mejor personalizar.
+# No amplia cobertura a mercados fuera de EEUU (esos simplemente no estan en
+# el mapa de tickers de la SEC), solo hace mas fiable el dato para EEUU en
+# vez de depender de que yfinance lo raspe correctamente de Yahoo.
+SEC_EDGAR_USER_AGENT = os.environ.get(
+    "SEC_EDGAR_USER_AGENT", "Stock-Screener contacto-no-configurado@example.com"
+)
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+SEC_ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/{primary_doc}"
+
+# Financial Modeling Prep (FMP): respaldo OPCIONAL (requiere API key propia,
+# hay plan gratis con 250 peticiones/dia) usado solo cuando Yahoo Finance no
+# tiene suficiente cobertura de analistas para calcular crecimiento o
+# recomendacion (tipico en small/micro caps). Si no se configura
+# FMP_API_KEY, el informe funciona igual que antes, simplemente sin este
+# respaldo.
+FMP_API_KEY = os.environ.get("FMP_API_KEY")
+FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
+
+
+@lru_cache(maxsize=1)
+def _load_edgar_cik_map() -> dict[str, str]:
+    """Ticker (mayusculas) -> CIK de 10 digitos segun SEC EDGAR. Se descarga
+    una sola vez por ejecucion (el fichero es grande y no cambia en minutos)."""
+    try:
+        resp = requests.get(
+            SEC_TICKERS_URL, headers={"User-Agent": SEC_EDGAR_USER_AGENT}, timeout=15
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return {}
+    return {entry["ticker"].upper(): f"{entry['cik_str']:010d}" for entry in data.values()}
+
+
+def _form4_has_open_market_buy(cik: str, accession: str, primary_doc: str) -> bool:
+    """Parsea un Form 4 (XML) y busca una transaccion de compra en mercado
+    abierto (transactionCode 'P', acquired/disposed 'A')."""
+    url = SEC_ARCHIVES_URL.format(
+        cik=int(cik), accession_nodash=accession.replace("-", ""), primary_doc=primary_doc
+    )
+    try:
+        resp = requests.get(url, headers={"User-Agent": SEC_EDGAR_USER_AGENT}, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception:
+        return False
+    for tx in root.iter("nonDerivativeTransaction"):
+        code = tx.find("./transactionCoding/transactionCode")
+        acquired = tx.find("./transactionAmounts/transactionAcquiredDisposedCode/value")
+        if code is not None and code.text == "P" and acquired is not None and acquired.text == "A":
+            return True
+    return False
+
+
+def edgar_recent_insider_buy(symbol: str) -> bool | None:
+    """True/False si SEC EDGAR confirma una compra de insider en mercado
+    abierto en los ultimos INSIDER_LOOKBACK_DAYS; None si el ticker no esta
+    en el mapa de EDGAR (no reporta a la SEC, ej. fuera de EEUU) o si la
+    consulta falla, para que quien llama pueda recurrir a Yahoo como
+    respaldo en vez de asumir que no hay compras."""
+    cik = _load_edgar_cik_map().get(symbol.upper())
+    if not cik:
+        return None
+    try:
+        resp = requests.get(
+            SEC_SUBMISSIONS_URL.format(cik=int(cik)),
+            headers={"User-Agent": SEC_EDGAR_USER_AGENT},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        recent = resp.json().get("filings", {}).get("recent", {})
+    except Exception:
+        return None
+
+    cutoff = datetime.now() - timedelta(days=INSIDER_LOOKBACK_DAYS)
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+    docs = recent.get("primaryDocument", [])
+    for form, date_str, accession, primary_doc in zip(forms, dates, accessions, docs):
+        if form != "4":
+            continue
+        try:
+            filing_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if filing_date < cutoff:
+            continue
+        if _form4_has_open_market_buy(cik, accession, primary_doc):
+            return True
+    return False
+
+
+def fmp_growth_and_coverage(symbol: str) -> tuple[float | None, int | None]:
+    """Crecimiento interanual de EPS y numero de analistas via Financial
+    Modeling Prep, solo si hay FMP_API_KEY configurada. Respaldo para cuando
+    Yahoo Finance no tiene cobertura suficiente (None) para calcularlo."""
+    if not FMP_API_KEY:
+        return None, None
+    try:
+        resp = requests.get(
+            f"{FMP_BASE_URL}/analyst-estimates/{symbol}",
+            params={"period": "annual", "limit": 2, "apikey": FMP_API_KEY},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        estimates = resp.json()
+    except Exception:
+        return None, None
+    if not isinstance(estimates, list) or len(estimates) < 2:
+        return None, None
+    current, previous = estimates[0], estimates[1]  # FMP: del mas reciente al mas antiguo
+    eps_now, eps_prev = current.get("epsAvg"), previous.get("epsAvg")
+    growth = None
+    if eps_now is not None and eps_prev not in (None, 0):
+        growth = (eps_now - eps_prev) / abs(eps_prev)
+    num_analysts = (
+        current.get("numberAnalystsEstimatedEps")
+        or current.get("numberAnalystEstimatedEps")
+        or current.get("numAnalystsEps")
+    )
+    return growth, num_analysts
+
+
+def fmp_recommendation(symbol: str) -> str | None:
+    """Consenso de analistas via FMP (notas individuales de upgrade/downgrade
+    recientes), respaldo cuando Yahoo no tiene recommendationKey para el
+    ticker. None si no hay FMP_API_KEY o no hay notas recientes."""
+    if not FMP_API_KEY:
+        return None
+    try:
+        resp = requests.get(
+            f"{FMP_BASE_URL}/grade/{symbol}",
+            params={"limit": 10, "apikey": FMP_API_KEY},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        grades = resp.json()
+    except Exception:
+        return None
+    if not isinstance(grades, list) or not grades:
+        return None
+    recent_grades = [g.get("newGrade", "").lower() for g in grades[:10] if g.get("newGrade")]
+    if not recent_grades:
+        return None
+    strong = sum(1 for g in recent_grades if g in STRONG_BUY_GRADES)
+    weak = sum(1 for g in recent_grades if g in {"underperform", "sell", "reduce"})
+    if strong > len(recent_grades) / 2:
+        return "COMPRA FUERTE"
+    if weak > len(recent_grades) / 2:
+        return "NO COMPRAR"
+    return "COMPRA NEUTRAL"
+
 
 def load_watchlist() -> list[str]:
     with open(WATCHLIST_FILE, encoding="utf-8") as f:
@@ -75,10 +242,16 @@ def load_watchlist() -> list[str]:
 
 
 def has_recent_insider_buying(ticker: yf.Ticker) -> bool | None:
-    """True/False si hay datos de transacciones de insiders; None si Yahoo no
-    publica ese dato para el ticker (habitual en acciones que no reportan a
-    la SEC, es decir la mayoria de acciones no estadounidenses). Devolver
-    None en vez de False evita penalizar a esas acciones en el score."""
+    """True/False si hay compras de insiders recientes; None si no hay dato
+    en ninguna fuente. Prueba primero SEC EDGAR (fuente oficial, solo cubre
+    acciones que reportan a la SEC) y si no aplica o falla, recurre a Yahoo
+    Finance como respaldo. Devolver None en vez de False evita penalizar en
+    el score a acciones sin este dato en ningun sitio (la mayoria fuera de
+    EEUU)."""
+    edgar_result = edgar_recent_insider_buy(ticker.ticker)
+    if edgar_result is not None:
+        return edgar_result
+
     try:
         df = ticker.insider_transactions
     except Exception:
@@ -140,6 +313,26 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
         # mismo bloque que agrega precios objetivo y recomendaciones: es un
         # consenso de analistas (ver glosario "Crecim."), no un calculo propio.
         growth = info.get("earningsGrowth")  # fraccion, ej 0.18 = 18%
+        num_analysts = info.get("numberOfAnalystOpinions")
+        recommendation = recommendation_label(info.get("recommendationKey"))
+        growth_source = "Yahoo" if growth is not None else None
+        recommendation_source = "Yahoo" if recommendation != "N/D" else None
+
+        # Respaldo FMP: solo se activa cuando Yahoo no tiene suficiente
+        # cobertura de analistas para calcular estas cifras (tipico en
+        # small/micro caps). Si FMP_API_KEY no esta configurada, estas
+        # llamadas devuelven None de inmediato y no cambia nada.
+        if growth is None or num_analysts is None:
+            fmp_growth, fmp_analysts = fmp_growth_and_coverage(sym)
+            if growth is None and fmp_growth is not None:
+                growth, growth_source = fmp_growth, "FMP"
+            if num_analysts is None and fmp_analysts is not None:
+                num_analysts = fmp_analysts
+        if recommendation == "N/D":
+            fmp_rec = fmp_recommendation(sym)
+            if fmp_rec is not None:
+                recommendation, recommendation_source = fmp_rec, "FMP"
+
         peg = (pe / (growth * 100)) if pe and growth and growth > 0 else None
         rows.append(
             {
@@ -148,11 +341,13 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 "country": info.get("country"),
                 "pe": pe,
                 "growth": growth,
+                "growth_source": growth_source,
                 "peg": peg,
                 "market_cap": info.get("marketCap"),
-                "num_analysts": info.get("numberOfAnalystOpinions"),
+                "num_analysts": num_analysts,
                 "insider_buying": has_recent_insider_buying(t),
-                "recommendation": recommendation_label(info.get("recommendationKey")),
+                "recommendation": recommendation,
+                "recommendation_source": recommendation_source,
                 "description_en": (info.get("longBusinessSummary") or "")[:DESCRIPTION_MAX_CHARS],
             }
         )
@@ -323,20 +518,30 @@ GLOSSARY = [
                 "ser una cifra robusta y actualizada; con pocos o ningun "
                 "analista (tipico en small/micro caps o acciones poco "
                 "seguidas fuera de EEUU) puede estar desactualizada, basada "
-                "en una sola estimacion, o directamente no existir (n/a)."),
+                "en una sola estimacion, o directamente no existir (n/a). "
+                "Si Yahoo no tenia cobertura suficiente, este informe intenta "
+                "rellenarlo con Financial Modeling Prep (FMP) como respaldo "
+                "opcional; en ese caso se marca '(via FMP)' junto a la cifra "
+                "en la seccion de descripcion detallada."),
     ("Insider buy", "Si algun directivo o accionista relevante compro "
-                     "acciones con su propio dinero en los ultimos 90 dias "
-                     "(dato de comunicados SEC Form 4, via Yahoo Finance). "
-                     "N/D significa que Yahoo no publica este dato para ese "
-                     "ticker, algo habitual fuera de EEUU (solo las "
-                     "empresas que reportan a la SEC presentan Form 4); en "
-                     "ese caso el criterio no cuenta ni a favor ni en "
-                     "contra en el score."),
+                     "acciones con su propio dinero en los ultimos 90 dias. "
+                     "Fuente primaria: SEC EDGAR (comunicados Form 4 "
+                     "oficiales, gratis, solo cubre acciones que reportan a "
+                     "la SEC); si EDGAR no tiene el ticker o falla la "
+                     "consulta, se recurre a Yahoo Finance como respaldo. "
+                     "N/D significa que ninguna de las dos fuentes tiene el "
+                     "dato para ese ticker, algo habitual fuera de EEUU "
+                     "(esas empresas no presentan Form 4); en ese caso el "
+                     "criterio no cuenta ni a favor ni en contra en el "
+                     "score."),
     ("Recomendacion", "Consenso agregado de analistas de bancos y brokers "
                        "que cubren la accion (Yahoo Finance recopila estas "
-                       "notas). COMPRA FUERTE = mayoria buy/strong buy, "
-                       "COMPRA NEUTRAL = mayoria hold, NO COMPRAR = mayoria "
-                       "underperform/sell, N/D = sin cobertura suficiente."),
+                       "notas; si Yahoo no tiene cobertura, se intenta un "
+                       "respaldo opcional via Financial Modeling Prep, "
+                       "marcado como '(via FMP)'). COMPRA FUERTE = mayoria "
+                       "buy/strong buy, COMPRA NEUTRAL = mayoria hold, NO "
+                       "COMPRAR = mayoria underperform/sell, N/D = sin "
+                       "cobertura suficiente en ninguna fuente."),
     ("Bancos", "Firmas de analisis (bancos de inversion, brokers) cuya nota "
                "mas reciente sobre la accion fue de compra/sobreponderar. "
                "Fuente: notas de upgrade/downgrade recopiladas por Yahoo "
@@ -634,6 +839,18 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
         )
 
+        # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
+        # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
+        growth_txt = f"{o['growth'] * 100:.1f}%" if o["growth"] else "n/d"
+        growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
+        rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(
+            0, 6,
+            sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
+            link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
+        )
+
         banks = o.get("strong_buy_banks") or []
         banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
         pdf.set_x(pdf.l_margin)
@@ -706,7 +923,6 @@ GENERATE_NOW_BUTTON = {
 
 
 def send_telegram_document(path: str, caption: str) -> None:
-    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     url = f"https://api.telegram.org/bot{token}/sendDocument"
