@@ -28,6 +28,25 @@ DESCRIPTION_MAX_CHARS = 500
 SMALL_CAP_MAX = 2_000_000_000  # USD; por debajo se trata como "pequeña capitalizacion"
 SMALL_CAP_TOP_N = 5
 
+# Cesta tematica "Trump trade": acciones que la prensa financiera (Goldman
+# Sachs, Kiplinger, Bloomberg, Investing.com...) menciona repetidamente como
+# beneficiarias o perjudicadas por politicas de la administracion Trump
+# (aranceles, gasto en defensa, desregulacion financiera, energia, cripto,
+# inmigracion). NO es el patrimonio personal de Donald Trump ni sale de
+# ningun informe de activos declarado (ver seccion 3 del informe / glosario
+# "Cesta Trump trade" para el detalle y las advertencias).
+TRUMP_TRADE_THEMES = {
+    "DJT": "Empresa de Trump (Trump Media & Technology Group)",
+    "LMT": "Defensa (gasto militar)",
+    "RTX": "Defensa (gasto militar)",
+    "NOC": "Defensa (gasto militar)",
+    "NUE": "Aranceles al acero / manufactura domestica",
+    "XOM": "Energia (petroleo y gas domesticos)",
+    "COIN": "Cripto (politica regulatoria favorable)",
+    "JPM": "Banca (desregulacion financiera)",
+    "GEO": "Inmigracion (contratos de detencion con ICE)",
+}
+
 STRONG_BUY_GRADES = {
     "buy", "strong buy", "outperform", "overweight",
     "market outperform", "sector outperform", "long-term buy",
@@ -340,10 +359,29 @@ GLOSSARY = [
                      "basan en menos opiniones y se actualizan con menos "
                      "frecuencia. n/d = Yahoo no reporta cobertura para ese "
                      "ticker."),
+    ("Cesta Trump trade", "IMPORTANTE: esta cesta NO es el patrimonio "
+                     "personal de Donald Trump ni sale de ningun informe de "
+                     "activos declarado (esos informes publicos, cuando "
+                     "existen, son sobre todo inmuebles y negocios privados, "
+                     "no acciones cotizadas). Es una seleccion tematica de "
+                     "acciones que la prensa financiera (Goldman Sachs, "
+                     "Kiplinger, Bloomberg, Investing.com, entre otros) "
+                     "menciona repetidamente como beneficiarias o "
+                     "perjudicadas por politicas de su administracion: "
+                     "aranceles, gasto en defensa, desregulacion financiera, "
+                     "energia, cripto e inmigracion. Son tesis especulativas "
+                     "y muy sensibles a titulares y giros de politica: por "
+                     "ejemplo, GEO Group subio fuerte tras la eleccion por "
+                     "sus contratos de detencion con ICE y luego borro esas "
+                     "subidas cuando hubo backlash publico. Que una accion "
+                     "aparezca aqui no es una recomendacion de compra ni de "
+                     "venta en ningun sentido, solo documenta una narrativa "
+                     "de mercado."),
 ]
 
 HEADER_FILL = (30, 60, 90)      # portada / tabla - azul
 SMALLCAP_FILL = (150, 40, 40)   # empresas pequeñas - granate
+TRUMP_FILL = (90, 90, 90)       # cesta tematica - gris neutro
 DESC_FILL = (34, 120, 80)       # descripciones - verde
 NEWS_FILL = (200, 110, 20)      # noticias - naranja
 GLOSSARY_FILL = (90, 50, 120)   # glosario - morado
@@ -433,7 +471,7 @@ def render_toc(pdf: FPDF, outline) -> None:
         )
 
 
-def build_pdf(top: list[dict], top_small: list[dict], rows: list[dict], avg_pe: float | None) -> str:
+def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
     avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/a"
     coverage = Counter(region_for(r["country"]) for r in rows)
     coverage_txt = " - ".join(f"{region}: {n}" for region, n in coverage.most_common())
@@ -527,10 +565,43 @@ def build_pdf(top: list[dict], top_small: list[dict], rows: list[dict], avg_pe: 
         pdf.set_font("Helvetica", size=9)
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
 
-    # --- Seccion 3: Descripcion detallada por accion (Top 10 principal) ---
+    # --- Seccion 3: Cesta tematica "Trump trade" ---
+    pdf.add_page()
+    pdf.start_section("Cesta tematica 'Trump trade'")
+    section_header(pdf, "3. Cesta tematica 'Trump trade'", TRUMP_FILL)
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.multi_cell(
+        pdf.epw, 5,
+        sanitize(
+            "Esta seccion NO es el patrimonio personal de Donald Trump ni sale de "
+            "ningun informe de activos declarado. Es una cesta tematica de acciones "
+            "que la prensa financiera (Goldman Sachs, Kiplinger, Bloomberg, "
+            "Investing.com, entre otros) asocia repetidamente con politicas de su "
+            "administracion (aranceles, defensa, desregulacion, energia, cripto, "
+            "inmigracion). Son tesis especulativas, sensibles a titulares y pueden "
+            "revertirse de un dia para otro (ver detalle y ejemplo en el Glosario, "
+            "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
+            "venta."
+        ),
+    )
+    pdf.ln(3)
+    render_summary_table(pdf, top_trump, glossary_links, TRUMP_FILL)
+    pdf.ln(4)
+    for o in top_trump:
+        theme = TRUMP_TRADE_THEMES.get(o["symbol"], "")
+        pdf.set_font("Helvetica", size=9, style="B")
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(0, 6, sanitize(f"{o['symbol']} - {theme}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", size=8)
+        pdf.set_x(pdf.l_margin)
+        desc = o.get("description_es") or "Sin descripcion disponible."
+        pdf.multi_cell(pdf.epw, 4, sanitize(desc))
+        pdf.ln(2)
+
+    # --- Seccion 4: Descripcion detallada por accion (Top 10 principal) ---
     pdf.add_page()
     pdf.start_section("Descripcion detallada por accion")
-    section_header(pdf, "3. Descripcion detallada por accion", DESC_FILL)
+    section_header(pdf, "4. Descripcion detallada por accion", DESC_FILL)
     for i, o in enumerate(top, start=1):
         pdf.set_font("Helvetica", size=12, style="B")
         pdf.set_x(pdf.l_margin)
@@ -559,11 +630,15 @@ def build_pdf(top: list[dict], top_small: list[dict], rows: list[dict], avg_pe: 
         pdf.multi_cell(pdf.epw, 5, sanitize(description))
         pdf.ln(4)
 
-    # --- Seccion 4: Noticias recientes (al final, antes del glosario) ---
+    # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "4. Noticias recientes (traducidas)", NEWS_FILL)
-    for o in top + top_small:
+    section_header(pdf, "5. Noticias recientes (traducidas)", NEWS_FILL)
+    seen_symbols = set()
+    for o in top + top_small + top_trump:
+        if o["symbol"] in seen_symbols:
+            continue  # evita repetir noticias si un ticker sale en varias secciones
+        seen_symbols.add(o["symbol"])
         news = o.get("news") or []
         if not news:
             continue
@@ -587,11 +662,11 @@ def build_pdf(top: list[dict], top_small: list[dict], rows: list[dict], avg_pe: 
             pdf.ln(2)
         pdf.ln(2)
 
-    # --- Seccion 5: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 6: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "5. Glosario de variables", GLOSSARY_FILL)
+    section_header(pdf, "6. Glosario de variables", GLOSSARY_FILL)
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)
@@ -638,9 +713,12 @@ def generate_and_send_report() -> None:
     top = rank_top(rows)
     small_cap_rows = [r for r in rows if is_small_cap(r)]
     top_small = rank_top(small_cap_rows, n=SMALL_CAP_TOP_N)
+    trump_rows = [r for r in rows if r["symbol"] in TRUMP_TRADE_THEMES]
+    top_trump = rank_top(trump_rows, n=len(trump_rows))
     top = enrich_top(top)
     top_small = enrich_top(top_small)
-    pdf_path = build_pdf(top, top_small, rows, avg_pe)
+    top_trump = enrich_top(top_trump)
+    pdf_path = build_pdf(top, top_small, top_trump, rows, avg_pe)
     print(f"PDF generado: {pdf_path}")
     send_telegram_document(pdf_path, caption=f"Screener - Top {len(top)} ({datetime.now():%d/%m/%Y})")
 

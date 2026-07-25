@@ -18,6 +18,7 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
   - [2. Configurar los secrets en GitHub](#2-configurar-los-secrets-en-github)
   - [3. Ejecutar](#3-ejecutar)
 - [Personalizar la watchlist](#personalizar-la-watchlist)
+- [Cesta temática "Trump trade"](#cesta-temática-trump-trade)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Automatización (GitHub Actions)](#automatización-github-actions)
 - [Glosario de métricas](#glosario-de-métricas)
@@ -31,13 +32,15 @@ Para cada ticker de la [watchlist](watchlist.txt), `screener.py`:
    beneficios, compras de insiders, recomendación de analistas).
 2. Calcula un **score** según los [criterios del ranking](#criterios-del-ranking),
    comparando el P/E contra la media de su propio sector.
-3. Se queda con el **Top 10** general y, por separado, un **Top 5 de empresas
-   de pequeña capitalización** (menos de 2.000 millones de USD), y enriquece
-   ambos con noticias recientes traducidas al español, sentimiento heurístico
-   de esas noticias y bancos con nota de compra fuerte.
+3. Se queda con el **Top 10** general, un **Top 5 de empresas de pequeña
+   capitalización** (menos de 2.000 millones de USD) y una **cesta temática
+   "Trump trade"** (ver más abajo), y enriquece las tres con noticias
+   recientes traducidas al español, sentimiento heurístico de esas noticias
+   y bancos con nota de compra fuerte.
 4. Genera un **PDF** (`informe.pdf`) con portada, índice navegable, tabla
-   resumen, sección de pequeña capitalización, descripción detallada por
-   acción, noticias y un glosario con hipervínculos.
+   resumen, sección de pequeña capitalización, cesta "Trump trade",
+   descripción detallada por acción, noticias y un glosario con
+   hipervínculos.
 5. Envía el PDF como documento a un chat/canal de **Telegram**.
 
 Además, `bot_listener.py` escucha el botón *"Generar informe ahora"* (o el
@@ -127,6 +130,34 @@ calcula en cada ejecución con el `marketCap` real de ese momento, así que
 si una acción crece por encima del umbral simplemente deja de aparecer ahí
 sin tocar el código.
 
+## Cesta temática "Trump trade"
+
+> ⚠️ **Esto NO es el patrimonio personal de Donald Trump** ni sale de ningún
+> informe de activos declarado (esos informes, cuando existen, son sobre
+> todo inmuebles y negocios privados, no una cartera de acciones cotizadas).
+
+La sección 3 del informe es una cesta temática (`TRUMP_TRADE_THEMES` en
+`screener.py`) con acciones que la prensa financiera (Goldman Sachs,
+Kiplinger, Bloomberg, Investing.com, entre otros) asocia repetidamente con
+políticas de su administración:
+
+| Ticker | Tema |
+|---|---|
+| `DJT` | Empresa de Trump (Trump Media & Technology Group) |
+| `LMT`, `RTX`, `NOC` | Defensa (gasto militar) |
+| `NUE` | Aranceles al acero / manufactura doméstica |
+| `XOM` | Energía (petróleo y gas domésticos) |
+| `COIN` | Cripto (política regulatoria favorable) |
+| `JPM` | Banca (desregulación financiera) |
+| `GEO` | Inmigración (contratos de detención con ICE) |
+
+Son tesis especulativas y muy sensibles a titulares y giros de política: por
+ejemplo, GEO Group subió fuerte tras la elección de 2024 por sus contratos
+de detención con ICE y luego borró esas subidas cuando hubo backlash público
+por las condiciones de los centros. Que una acción aparezca aquí **no es una
+recomendación de compra ni de venta**, solo documenta una narrativa de
+mercado — se rankea con los mismos criterios que el resto del informe.
+
 ## Estructura del proyecto
 
 ```
@@ -164,6 +195,7 @@ Ambos workflows también se pueden lanzar manualmente desde la pestaña
 | **Recomendación** | Consenso agregado de analistas de bancos y brokers que cubren la acción. |
 | **Bancos** | Firmas de análisis cuya nota más reciente sobre la acción fue de compra/sobreponderar. |
 | **Sentimiento noticia** | Etiqueta automática por palabras clave sobre el titular+resumen de cada noticia. Es una heurística simple, no un análisis experto ni generado por IA. |
+| **Cesta Trump trade** | Ver la sección [Cesta temática "Trump trade"](#cesta-temática-trump-trade) más arriba. |
 
 Este mismo glosario está incluido, con hipervínculos desde la tabla, dentro
 del PDF generado.
