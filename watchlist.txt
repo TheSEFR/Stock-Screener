@@ -1,4 +1,5 @@
 # Un ticker por linea. Lineas que empiezan con # se ignoran.
+# Grandes tecnologicas y semiconductores
 AAPL
 MSFT
 GOOGL
@@ -6,6 +7,26 @@ AMZN
 NVDA
 META
 TSLA
-JPM
-V
-UNH
+AVGO
+ORCL
+ADBE
+CRM
+AMD
+INTC
+QCOM
+TXN
+CSCO
+IBM
+NOW
+INTU
+UBER
+SHOP
+NFLX
+PYPL
+SNOW
+PLTR
+ASML
+TSM
+SAP
+BABA
+SONY

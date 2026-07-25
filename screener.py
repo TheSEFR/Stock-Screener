@@ -1,6 +1,7 @@
 """
 Screener de oportunidades de compra: P/E vs sector, PEG, crecimiento de
-beneficios e insider buying. Envia un resumen a Telegram.
+beneficios e insider buying. Rankea la watchlist y envia el top 10 (con
+titulares de noticias recientes de cada una) a Telegram.
 
 Uso: python screener.py
 """
@@ -16,6 +17,8 @@ WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.txt")
 INSIDER_LOOKBACK_DAYS = 90
 PEG_MAX = 1.5
 EARNINGS_GROWTH_MIN = 0.15  # 15%
+TOP_N = 10
+NEWS_PER_TICKER = 2
 
 
 def load_watchlist() -> list[str]:
@@ -63,35 +66,54 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float]:
     return rows, sector_avg_pe
 
 
-def find_opportunities(rows: list[dict], avg_pe: float | None) -> list[dict]:
-    opportunities = []
+def score(r: dict, avg_pe: float | None) -> int:
+    checks = {
+        "pe_bajo": avg_pe is not None and r["pe"] is not None and r["pe"] < avg_pe,
+        "peg_bueno": r["peg"] is not None and r["peg"] < PEG_MAX,
+        "crecimiento": r["growth"] is not None and r["growth"] > EARNINGS_GROWTH_MIN,
+        "insider_buying": r["insider_buying"],
+    }
+    r["checks"] = checks
+    return sum(checks.values())
+
+
+def rank_top(rows: list[dict], avg_pe: float | None, n: int = TOP_N) -> list[dict]:
     for r in rows:
-        if not avg_pe or not r["pe"]:
-            continue
-        checks = {
-            "pe_bajo": r["pe"] < avg_pe,
-            "peg_bueno": r["peg"] is not None and r["peg"] < PEG_MAX,
-            "crecimiento": r["growth"] is not None and r["growth"] > EARNINGS_GROWTH_MIN,
-            "insider_buying": r["insider_buying"],
-        }
-        # Oportunidad = P/E bajo + al menos 2 de las otras 3 senales
-        if checks["pe_bajo"] and sum(checks.values()) >= 3:
-            opportunities.append({**r, "checks": checks})
-    return opportunities
+        r["score"] = score(r, avg_pe)
+    ranked = sorted(rows, key=lambda r: r["score"], reverse=True)
+    return ranked[:n]
 
 
-def format_message(opportunities: list[dict], avg_pe: float | None) -> str:
-    if not opportunities:
-        return "Screener: sin oportunidades claras hoy en la watchlist."
-    lines = [f"Oportunidades detectadas (P/E medio watchlist: {avg_pe:.1f}):\n"]
-    for o in opportunities:
+def get_recent_news(symbol: str, limit: int = NEWS_PER_TICKER) -> list[str]:
+    try:
+        items = yf.Ticker(symbol).news or []
+    except Exception:
+        return []
+    titles = []
+    for item in items[:limit]:
+        content = item.get("content", item)  # yfinance nuevo anida en 'content'
+        title = content.get("title")
+        if title:
+            titles.append(title)
+    return titles
+
+
+def format_message(top: list[dict], avg_pe: float | None) -> str:
+    if not top:
+        return "Screener: sin datos disponibles hoy."
+    avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/a"
+    lines = [f"Top {len(top)} de la watchlist (P/E medio del grupo: {avg_txt}):\n"]
+    for i, o in enumerate(top, start=1):
+        pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/a"
         peg_txt = f"{o['peg']:.2f}" if o["peg"] else "n/a"
         growth_txt = f"{o['growth']*100:.1f}%" if o["growth"] else "n/a"
         lines.append(
-            f"• {o['symbol']} ({o['sector']}) — P/E {o['pe']:.1f} | "
-            f"PEG {peg_txt} | crecimiento {growth_txt} | "
+            f"{i}. {o['symbol']} ({o['sector']}) — puntuacion {o['score']}/4 — "
+            f"P/E {pe_txt} | PEG {peg_txt} | crecimiento {growth_txt} | "
             f"insider buying: {'si' if o['insider_buying'] else 'no'}"
         )
+        for headline in get_recent_news(o["symbol"]):
+            lines.append(f"    - {headline}")
     return "\n".join(lines)
 
 
@@ -107,8 +129,8 @@ def send_telegram(message: str) -> None:
 def main() -> None:
     symbols = load_watchlist()
     rows, avg_pe = analyze(symbols)
-    opportunities = find_opportunities(rows, avg_pe)
-    message = format_message(opportunities, avg_pe)
+    top = rank_top(rows, avg_pe)
+    message = format_message(top, avg_pe)
     print(message)
     send_telegram(message)
 
