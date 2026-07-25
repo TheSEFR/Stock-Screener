@@ -25,6 +25,8 @@ EARNINGS_GROWTH_MIN = 0.15  # 15%
 TOP_N = 10
 NEWS_PER_TICKER = 2
 DESCRIPTION_MAX_CHARS = 500
+SMALL_CAP_MAX = 2_000_000_000  # USD; por debajo se trata como "pequeña capitalizacion"
+SMALL_CAP_TOP_N = 5
 
 STRONG_BUY_GRADES = {
     "buy", "strong buy", "outperform", "overweight",
@@ -97,12 +99,27 @@ def region_for(country: str | None) -> str:
     return REGION_BY_COUNTRY.get(country or "", "Otros")
 
 
+def is_small_cap(r: dict) -> bool:
+    return r["market_cap"] is not None and r["market_cap"] < SMALL_CAP_MAX
+
+
+def format_market_cap(value: float | None) -> str:
+    if not value:
+        return "n/d"
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}B"
+    return f"{value / 1_000_000:.0f}M"
+
+
 def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
     rows = []
     for sym in symbols:
         t = yf.Ticker(sym)
         info = t.info
         pe = info.get("trailingPE")
+        # "earningsGrowth" viene del modulo financialData de Yahoo Finance, el
+        # mismo bloque que agrega precios objetivo y recomendaciones: es un
+        # consenso de analistas (ver glosario "Crecim."), no un calculo propio.
         growth = info.get("earningsGrowth")  # fraccion, ej 0.18 = 18%
         peg = (pe / (growth * 100)) if pe and growth and growth > 0 else None
         rows.append(
@@ -113,6 +130,8 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 "pe": pe,
                 "growth": growth,
                 "peg": peg,
+                "market_cap": info.get("marketCap"),
+                "num_analysts": info.get("numberOfAnalystOpinions"),
                 "insider_buying": has_recent_insider_buying(t),
                 "recommendation": recommendation_label(info.get("recommendationKey")),
                 "description_en": (info.get("longBusinessSummary") or "")[:DESCRIPTION_MAX_CHARS],
@@ -270,9 +289,22 @@ GLOSSARY = [
     ("PEG", "P/E dividido por el % de crecimiento esperado de beneficios. "
             "Por debajo de 1.5 sugiere que el precio no esta sobrepagando "
             "ese crecimiento; por debajo de 1 se suele considerar barato."),
-    ("Crecim.", "Crecimiento interanual del beneficio por accion (EPS), "
-                "segun estimacion de Yahoo Finance. Por encima del 15% se "
-                "considera fuerte."),
+    ("Crecim.", "Crecimiento interanual esperado del beneficio por accion "
+                "(EPS). Por encima del 15% se considera fuerte. "
+                "De donde sale: es el campo 'earningsGrowth' del modulo "
+                "financialData de Yahoo Finance, el mismo bloque de datos "
+                "que agrega los precios objetivo y la recomendacion de "
+                "analistas (ver 'Recomendacion' y 'Bancos' mas abajo). No "
+                "es un calculo propio de este informe ni un dato verificado "
+                "de forma independiente: es un CONSENSO construido por "
+                "Yahoo a partir de las proyecciones de los analistas que "
+                "cubren esa accion. Por eso depende directamente de cuantos "
+                "analistas la cubran (ver columna/glosario '# Analistas'): "
+                "con muchos analistas (grandes tecnologicas de EEUU) suele "
+                "ser una cifra robusta y actualizada; con pocos o ningun "
+                "analista (tipico en small/micro caps o acciones poco "
+                "seguidas fuera de EEUU) puede estar desactualizada, basada "
+                "en una sola estimacion, o directamente no existir (n/a)."),
     ("Insider buy", "Si algun directivo o accionista relevante compro "
                      "acciones con su propio dinero en los ultimos 90 dias "
                      "(dato de comunicados SEC Form 4, via Yahoo Finance). "
@@ -295,9 +327,23 @@ GLOSSARY = [
                              "heuristica simple, NO un analisis experto ni "
                              "generado por IA: leela como orientacion, no "
                              "como veredicto."),
+    ("Cap.", "Capitalizacion bursatil (precio de la accion x numero "
+                      "de acciones en circulacion), segun Yahoo Finance. Se "
+                      "usa para clasificar una accion como 'pequeña "
+                      "capitalizacion' en la seccion 2 de este informe "
+                      f"(por debajo de {SMALL_CAP_MAX / 1_000_000_000:.0f}.000 "
+                      "millones de USD)."),
+    ("# Analistas", "Numero de analistas de bancos/brokers que Yahoo Finance "
+                     "contabiliza cubriendo esa accion (campo "
+                     "numberOfAnalystOpinions). Cuantos menos analistas, "
+                     "menos fiables son 'Crecim.' y 'Recomendacion': se "
+                     "basan en menos opiniones y se actualizan con menos "
+                     "frecuencia. n/d = Yahoo no reporta cobertura para ese "
+                     "ticker."),
 ]
 
 HEADER_FILL = (30, 60, 90)      # portada / tabla - azul
+SMALLCAP_FILL = (150, 40, 40)   # empresas pequeñas - granate
 DESC_FILL = (34, 120, 80)       # descripciones - verde
 NEWS_FILL = (200, 110, 20)      # noticias - naranja
 GLOSSARY_FILL = (90, 50, 120)   # glosario - morado
@@ -333,6 +379,43 @@ def section_header(pdf: FPDF, text: str, color: tuple[int, int, int]) -> None:
     pdf.ln(3)
 
 
+SUMMARY_HEADERS = ["#", "Ticker", "Pais", "Sector", "Cap.", "# Analistas", "Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
+SUMMARY_LINK_COLS = {"Cap.", "# Analistas", "Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
+SUMMARY_WIDTHS = (7, 16, 24, 40, 16, 16, 12, 12, 12, 14, 18, 30)
+
+
+def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, headings_fill: tuple[int, int, int]) -> None:
+    from fpdf.fonts import FontFace
+
+    pdf.set_font("Helvetica", size=8)
+    headings_style = FontFace(emphasis="B", color=(255, 255, 255), fill_color=headings_fill)
+    with pdf.table(
+        col_widths=SUMMARY_WIDTHS,
+        text_align="LEFT",
+        headings_style=headings_style,
+        cell_fill_color=ZEBRA_FILL,
+        cell_fill_mode="EVEN_ROWS",
+    ) as table:
+        row = table.row()
+        for h in SUMMARY_HEADERS:
+            row.cell(h, link=glossary_links[h] if h in SUMMARY_LINK_COLS else None)
+        for i, o in enumerate(entries, start=1):
+            row = table.row()
+            row.cell(str(i))
+            row.cell(o["symbol"])
+            row.cell(sanitize(o["country"] or "n/a"))
+            row.cell(sanitize(o["sector"] or "n/a"))
+            row.cell(format_market_cap(o["market_cap"]))
+            row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
+            row.cell(f"{o['score']}/{o['checks_applicable']}")
+            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/a")
+            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/a")
+            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/a")
+            insider = o["insider_buying"]
+            row.cell("N/D" if insider is None else ("Si" if insider else "No"))
+            row.cell(o["recommendation"])
+
+
 def render_toc(pdf: FPDF, outline) -> None:
     pdf.set_font("Helvetica", size=16, style="B")
     pdf.set_text_color(*HEADER_FILL)
@@ -350,14 +433,13 @@ def render_toc(pdf: FPDF, outline) -> None:
         )
 
 
-def build_pdf(top: list[dict], rows: list[dict], avg_pe: float | None) -> str:
-    from fpdf.fonts import FontFace
-
+def build_pdf(top: list[dict], top_small: list[dict], rows: list[dict], avg_pe: float | None) -> str:
     avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/a"
     coverage = Counter(region_for(r["country"]) for r in rows)
     coverage_txt = " - ".join(f"{region}: {n}" for region, n in coverage.most_common())
     top_coverage = Counter(region_for(o["country"]) for o in top)
     top_coverage_txt = " - ".join(f"{region}: {n}" for region, n in top_coverage.most_common())
+    n_small_cap = sum(1 for r in rows if is_small_cap(r))
 
     pdf = ReportPDF(orientation="L", format="A4")
     pdf.alias_nb_pages()
@@ -381,7 +463,7 @@ def build_pdf(top: list[dict], rows: list[dict], avg_pe: float | None) -> str:
     pdf.cell(0, 8, f"Top {len(top)} de la watchlist analizada - P/E medio global: {avg_txt}", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
     pdf.set_font("Helvetica", size=9)
-    pdf.cell(0, 6, sanitize(f"Cobertura del analisis: {len(rows)} acciones - {coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, sanitize(f"Cobertura del analisis: {len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - {coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 6, sanitize(f"Mercados en este Top {len(top)}: {top_coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(6)
     pdf.set_font("Helvetica", size=9, style="I")
@@ -406,42 +488,49 @@ def build_pdf(top: list[dict], rows: list[dict], avg_pe: float | None) -> str:
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
+    render_summary_table(pdf, top, glossary_links, HEADER_FILL)
 
-    pdf.set_font("Helvetica", size=8)
-    headers = ["#", "Ticker", "Pais", "Sector", "Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
-    link_cols = {"Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-    widths = (7, 16, 22, 38, 14, 14, 14, 16, 20, 30)
-    headings_style = FontFace(emphasis="B", color=(255, 255, 255), fill_color=HEADER_FILL)
-    with pdf.table(
-        col_widths=widths,
-        text_align="LEFT",
-        headings_style=headings_style,
-        cell_fill_color=ZEBRA_FILL,
-        cell_fill_mode="EVEN_ROWS",
-    ) as table:
-        row = table.row()
-        for h in headers:
-            row.cell(h, link=glossary_links[h] if h in link_cols else None)
-        for i, o in enumerate(top, start=1):
-            row = table.row()
-            row.cell(str(i))
-            row.cell(o["symbol"])
-            row.cell(sanitize(o["country"] or "n/a"))
-            row.cell(sanitize(o["sector"] or "n/a"))
-            row.cell(f"{o['score']}/{o['checks_applicable']}")
-            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/a")
-            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/a")
-            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/a")
-            insider = o["insider_buying"]
-            row.cell("N/D" if insider is None else ("Si" if insider else "No"))
-            row.cell(o["recommendation"])
-
-    # --- Seccion 2: Descripcion detallada por accion ---
+    # --- Seccion 2: Empresas de pequeña capitalizacion ---
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
+    pdf.start_section("Empresas de pequeña capitalizacion")
+    section_header(pdf, f"2. Empresas de pequeña capitalizacion (Top {len(top_small)})", SMALLCAP_FILL)
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.multi_cell(
+        pdf.epw, 5,
+        sanitize(
+            f"Mismos criterios de la seccion 1, aplicados solo a acciones con "
+            f"capitalizacion de mercado por debajo de "
+            f"{SMALL_CAP_MAX / 1_000_000_000:.0f}.000 millones de USD "
+            f"({n_small_cap} de las {len(rows)} acciones analizadas). Ojo: suelen "
+            f"tener mucha menos cobertura de analistas (columna # Analistas) que "
+            f"las grandes tecnologicas del resto del informe, lo que hace menos "
+            f"fiables el 'Crecim.' y la 'Recomendacion' (ver Glosario), y suelen "
+            f"tener mayor volatilidad y menor liquidez."
+        ),
+    )
+    pdf.ln(3)
+    if top_small:
+        render_summary_table(pdf, top_small, glossary_links, SMALLCAP_FILL)
+        pdf.ln(4)
+        for o in top_small:
+            pdf.set_font("Helvetica", size=9, style="B")
+            pdf.set_x(pdf.l_margin)
+            pdf.cell(0, 6, sanitize(f"{o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'}, cap. {format_market_cap(o['market_cap'])})"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", size=8)
+            pdf.set_x(pdf.l_margin)
+            desc = o.get("description_es") or "Sin descripcion disponible."
+            pdf.multi_cell(pdf.epw, 4, sanitize(desc))
+            pdf.ln(2)
+    else:
+        pdf.set_font("Helvetica", size=9)
+        pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
+
+    # --- Seccion 3: Descripcion detallada por accion (Top 10 principal) ---
+    pdf.add_page()
     pdf.start_section("Descripcion detallada por accion")
-    section_header(pdf, "2. Descripcion detallada por accion", DESC_FILL)
+    section_header(pdf, "3. Descripcion detallada por accion", DESC_FILL)
     for i, o in enumerate(top, start=1):
         pdf.set_font("Helvetica", size=12, style="B")
         pdf.set_x(pdf.l_margin)
@@ -470,11 +559,11 @@ def build_pdf(top: list[dict], rows: list[dict], avg_pe: float | None) -> str:
         pdf.multi_cell(pdf.epw, 5, sanitize(description))
         pdf.ln(4)
 
-    # --- Seccion 3: Noticias recientes (al final, antes del glosario) ---
+    # --- Seccion 4: Noticias recientes (al final, antes del glosario) ---
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "3. Noticias recientes (traducidas)", NEWS_FILL)
-    for o in top:
+    section_header(pdf, "4. Noticias recientes (traducidas)", NEWS_FILL)
+    for o in top + top_small:
         news = o.get("news") or []
         if not news:
             continue
@@ -498,11 +587,11 @@ def build_pdf(top: list[dict], rows: list[dict], avg_pe: float | None) -> str:
             pdf.ln(2)
         pdf.ln(2)
 
-    # --- Seccion 4: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 5: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "4. Glosario de variables", GLOSSARY_FILL)
+    section_header(pdf, "5. Glosario de variables", GLOSSARY_FILL)
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)
@@ -547,8 +636,11 @@ def generate_and_send_report() -> None:
     symbols = load_watchlist()
     rows, avg_pe = analyze(symbols)
     top = rank_top(rows)
+    small_cap_rows = [r for r in rows if is_small_cap(r)]
+    top_small = rank_top(small_cap_rows, n=SMALL_CAP_TOP_N)
     top = enrich_top(top)
-    pdf_path = build_pdf(top, rows, avg_pe)
+    top_small = enrich_top(top_small)
+    pdf_path = build_pdf(top, top_small, rows, avg_pe)
     print(f"PDF generado: {pdf_path}")
     send_telegram_document(pdf_path, caption=f"Screener - Top {len(top)} ({datetime.now():%d/%m/%Y})")
 

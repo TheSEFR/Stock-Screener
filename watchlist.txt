@@ -45,3 +45,17 @@ TCEHY
 TSM
 SONY
 005930.KS
+
+# Pequeña/micro capitalizacion (EEUU) - candidatas a la seccion 2 del informe.
+# La clasificacion es dinamica (segun marketCap real de cada ejecucion), no
+# fija: si alguna crece por encima del umbral, sale de esa seccion sin tocar
+# el codigo.
+CLSK
+ROOT
+VRA
+CVU
+IDN
+PRTS
+BARK
+SPOK
+NPK
