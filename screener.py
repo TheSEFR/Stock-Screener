@@ -1,17 +1,19 @@
 """
 Screener de oportunidades de compra: P/E vs sector, PEG, crecimiento de
-beneficios e insider buying. Rankea la watchlist y envia el top 10 (con
-titulares de noticias recientes de cada una) a Telegram.
+beneficios e insider buying. Rankea la watchlist, genera un PDF en tabla
+con el top 10 (y titulares de noticias recientes) y lo envia a Telegram.
 
 Uso: python screener.py
 """
 import os
+import unicodedata
 from datetime import datetime, timedelta
 
 import pandas as pd
 import requests
 import yfinance as yf
 from dotenv import load_dotenv
+from fpdf import FPDF
 
 WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.txt")
 INSIDER_LOOKBACK_DAYS = 90
@@ -98,31 +100,82 @@ def get_recent_news(symbol: str, limit: int = NEWS_PER_TICKER) -> list[str]:
     return titles
 
 
-def format_message(top: list[dict], avg_pe: float | None) -> str:
-    if not top:
-        return "Screener: sin datos disponibles hoy."
+def sanitize(text: str) -> str:
+    """Normaliza puntuacion 'inteligente' y descarta lo que no cabe en latin-1
+    (fuentes PDF core no soportan unicode completo, ni en Windows ni en el
+    runner de GitHub Actions)."""
+    replacements = {
+        "—": "-", "–": "-", "‘": "'", "’": "'",
+        "“": '"', "”": '"', "…": "...",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = unicodedata.normalize("NFC", text)
+    return text.encode("latin-1", errors="ignore").decode("latin-1")
+
+
+def build_pdf(top: list[dict], avg_pe: float | None) -> str:
     avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/a"
-    lines = [f"Top {len(top)} de la watchlist (P/E medio del grupo: {avg_txt}):\n"]
-    for i, o in enumerate(top, start=1):
-        pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/a"
-        peg_txt = f"{o['peg']:.2f}" if o["peg"] else "n/a"
-        growth_txt = f"{o['growth']*100:.1f}%" if o["growth"] else "n/a"
-        lines.append(
-            f"{i}. {o['symbol']} ({o['sector']}) — puntuacion {o['score']}/4 — "
-            f"P/E {pe_txt} | PEG {peg_txt} | crecimiento {growth_txt} | "
-            f"insider buying: {'si' if o['insider_buying'] else 'no'}"
-        )
-        for headline in get_recent_news(o["symbol"]):
-            lines.append(f"    - {headline}")
-    return "\n".join(lines)
+    pdf = FPDF(orientation="L", format="A4")
+    pdf.set_auto_page_break(True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=14, style="B")
+    pdf.cell(0, 10, sanitize(f"Screener de acciones - {datetime.now():%d/%m/%Y %H:%M}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(0, 8, sanitize(f"P/E medio del grupo analizado: {avg_txt}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", size=9)
+    headers = ["#", "Ticker", "Sector", "Score/4", "P/E", "PEG", "Crecim.", "Insider buy"]
+    widths = (8, 18, 45, 18, 18, 18, 20, 25)
+    with pdf.table(col_widths=widths, text_align="LEFT") as table:
+        row = table.row()
+        for h in headers:
+            row.cell(h)
+        for i, o in enumerate(top, start=1):
+            row = table.row()
+            row.cell(str(i))
+            row.cell(o["symbol"])
+            row.cell(sanitize(o["sector"] or "n/a"))
+            row.cell(f"{o['score']}/4")
+            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/a")
+            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/a")
+            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/a")
+            row.cell("Si" if o["insider_buying"] else "No")
+
+    pdf.set_x(pdf.l_margin)
+    pdf.ln(6)
+    pdf.set_font("Helvetica", size=12, style="B")
+    pdf.cell(pdf.epw, 8, "Titulares recientes", new_x="LMARGIN", new_y="NEXT")
+    for o in top:
+        headlines = get_recent_news(o["symbol"])
+        if not headlines:
+            continue
+        pdf.set_font("Helvetica", size=10, style="B")
+        pdf.cell(pdf.epw, 6, sanitize(o["symbol"]), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", size=9)
+        for headline in headlines:
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(pdf.epw, 5, sanitize(f"- {headline}"))
+        pdf.ln(2)
+
+    out_path = os.path.join(os.path.dirname(__file__), "informe.pdf")
+    pdf.output(out_path)
+    return out_path
 
 
-def send_telegram(message: str) -> None:
+def send_telegram_document(path: str, caption: str) -> None:
     load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    resp = requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=15)
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    with open(path, "rb") as f:
+        resp = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"document": f},
+            timeout=30,
+        )
     resp.raise_for_status()
 
 
@@ -130,9 +183,9 @@ def main() -> None:
     symbols = load_watchlist()
     rows, avg_pe = analyze(symbols)
     top = rank_top(rows, avg_pe)
-    message = format_message(top, avg_pe)
-    print(message)
-    send_telegram(message)
+    pdf_path = build_pdf(top, avg_pe)
+    print(f"PDF generado: {pdf_path}")
+    send_telegram_document(pdf_path, caption=f"Screener - Top {len(top)} ({datetime.now():%d/%m/%Y})")
 
 
 if __name__ == "__main__":
