@@ -1,5 +1,5 @@
 # Un ticker por linea. Lineas que empiezan con # se ignoran.
-# Grandes tecnologicas y semiconductores
+# EE.UU. - grandes tecnologicas y semiconductores
 AAPL
 MSFT
 GOOGL
@@ -25,8 +25,23 @@ NFLX
 PYPL
 SNOW
 PLTR
-ASML
-TSM
-SAP
+
+# Europa
+ASML.AS
+SAP.DE
+SIE.DE
+MC.PA
+NESN.SW
+NOVN.SW
+OR.PA
+AIR.PA
+
+# China / Asia (ADRs mas fiables en yfinance que las bolsas locales)
 BABA
+JD
+PDD
+BIDU
+TCEHY
+TSM
 SONY
+005930.KS
