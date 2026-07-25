@@ -1,0 +1,22 @@
+name: Stock Screener - Bot Listener
+
+on:
+  schedule:
+    # Cada 10 minutos. GitHub puede retrasar crons muy frecuentes en horas
+    # punta, asi que el boton no es instantaneo (hasta ~10-15 min).
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check-telegram:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python bot_listener.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
