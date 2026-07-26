@@ -30,8 +30,9 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
 Para cada ticker de la [watchlist](watchlist.txt), `screener.py`:
 
 1. Descarga fundamentales vía [yfinance](https://pypi.org/project/yfinance/)
-   (P/E, capitalización de mercado, cobertura de analistas, crecimiento de
-   beneficios, compras de insiders, recomendación de analistas).
+   (precio actual, precio objetivo de analistas, P/E, capitalización de
+   mercado, cobertura de analistas, crecimiento de beneficios, compras de
+   insiders, recomendación de analistas).
 2. Calcula un **score** según los [criterios del ranking](#criterios-del-ranking),
    comparando el P/E contra la media de su propio sector.
 3. Se queda con el **Top 10** general, un **Top 5 de empresas de pequeña
@@ -48,6 +49,16 @@ Para cada ticker de la [watchlist](watchlist.txt), `screener.py`:
 Además, `bot_listener.py` escucha el botón *"Generar informe ahora"* (o el
 comando `/informe`) en Telegram para disparar el informe bajo demanda, fuera
 del horario programado.
+
+**¿El informe cambia cada vez o es un valor fijo/anual?** Cambia cada vez
+que se genera. No hay ningún dato cacheado ni anual: cada ejecución hace
+consultas en vivo a Yahoo Finance (y a los respaldos configurados) en ese
+momento, así que el precio, el P/E, la recomendación, etc. reflejan el
+mercado a la hora en que se generó ESE informe concreto, no un histórico ni
+una foto fija. Verás la fecha y hora exactas en la portada del PDF
+("Informe generado el ..."). Lo de "interanual" en el crecimiento de
+beneficios se refiere a la ventana temporal que mide ese dato (este año vs.
+el año pasado), no a la frecuencia de generación del informe.
 
 ## Fuentes de datos combinadas
 
@@ -239,6 +250,9 @@ Ambos workflows también se pueden lanzar manualmente desde la pestaña
 | Métrica | Explicación |
 |---|---|
 | **Score** | Aciertos sobre criterios aplicables para ese ticker (ver [criterios del ranking](#criterios-del-ranking)). |
+| **Precio** | Precio actual en el momento en que se generó ESE informe (no un valor fijo), en la divisa local del ticker (ver columna "País" para contexto: USD, EUR, KRW...). No convertido a una divisa común. |
+| **P.Objetivo** | Precio objetivo medio de consenso de analistas (`targetMeanPrice`), mismas limitaciones de cobertura que "Crecim." y "Recomendación". |
+| **Potencial** | Diferencia % entre "P.Objetivo" y "Precio". Positivo no garantiza subida real, solo indica la expectativa actual de los analistas. |
 | **P/E** | Precio / beneficio por acción (trailing). Se compara contra el promedio de su mismo sector, no un promedio global. Como referencia general: por debajo de 15 se suele considerar barato, entre 15 y 25 razonable, por encima de 25-30 caro / de alto crecimiento. |
 | **PEG** | P/E dividido por el % de crecimiento esperado de beneficios. Por debajo de 1.5 sugiere que el precio no está sobrepagando ese crecimiento; por debajo de 1 se suele considerar barato. |
 | **Crecim.** | Crecimiento interanual esperado del EPS. Consenso de analistas vía Yahoo Finance (`earningsGrowth`), ver la explicación completa de su origen [más arriba](#criterios-del-ranking). |

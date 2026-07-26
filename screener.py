@@ -337,6 +337,18 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 recommendation, recommendation_source = fmp_rec, "FMP"
 
         peg = (pe / (growth * 100)) if pe and growth and growth > 0 else None
+
+        # Precio actual (a fecha/hora de ESTA ejecucion, no un valor fijo) y
+        # precio objetivo de consenso de analistas (mismo modulo financialData
+        # que "Crecim."/"Recomendacion": ver glosario "Precio objetivo").
+        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+        target_price = info.get("targetMeanPrice")
+        currency = info.get("currency") or ""
+        upside = (
+            (target_price - current_price) / current_price
+            if current_price and target_price else None
+        )
+
         rows.append(
             {
                 "symbol": sym,
@@ -346,6 +358,10 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 "growth": growth,
                 "growth_source": growth_source,
                 "peg": peg,
+                "current_price": current_price,
+                "target_price": target_price,
+                "currency": currency,
+                "upside": upside,
                 "market_cap": info.get("marketCap"),
                 "num_analysts": num_analysts,
                 "insider_buying": has_recent_insider_buying(t),
@@ -597,6 +613,26 @@ GLOSSARY = [
                              "heuristica simple, NO un analisis experto ni "
                              "generado por IA: leela como orientacion, no "
                              "como veredicto."),
+    ("Precio", "Precio actual de la accion en el momento en que se genero "
+               "ESTE informe (no un valor fijo ni anual): el screener corre "
+               "varias veces al dia (ver workflows de GitHub Actions) y cada "
+               "vez consulta precios en vivo. En cada moneda local del "
+               "ticker (ver columna 'Pais' para contexto: USD para EEUU, "
+               "EUR para Europa, KRW para Samsung, etc.), no convertido a "
+               "una divisa comun, asi que no compares precios en bruto "
+               "entre acciones de paises distintos."),
+    ("P.Objetivo", "Precio objetivo medio segun el consenso de analistas "
+                   "(campo targetMeanPrice de Yahoo Finance, mismo modulo "
+                   "que 'Crecim.' y 'Recomendacion'). Igual que esos "
+                   "campos, depende de la cobertura de analistas: mas "
+                   "fiable con mucha cobertura, mas ruidoso o ausente (n/d) "
+                   "con poca. NO es una prediccion propia de este informe."),
+    ("Potencial", "Diferencia porcentual entre 'P.Objetivo' y 'Precio': "
+                  "cuanto subiria (o bajaria) la accion si alcanzase el "
+                  "precio objetivo de consenso. Positivo no garantiza "
+                  "subida real, es solo la distancia a la expectativa "
+                  "actual de los analistas, con las mismas limitaciones de "
+                  "cobertura que 'P.Objetivo'."),
     ("Cap.", "Capitalizacion bursatil (precio de la accion x numero "
                       "de acciones en circulacion), segun Yahoo Finance. Se "
                       "usa para clasificar una accion como 'pequeña "
@@ -718,12 +754,12 @@ def section_header(pdf: FPDF, text: str, color: tuple[int, int, int]) -> None:
     pdf.ln(3)
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
-SUMMARY_LINK_COLS = {"Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-SUMMARY_WIDTHS = (7, 16, 22, 34, 15, 15, 12, 14, 11, 11, 13, 17, 28)
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
+SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
+SUMMARY_WIDTHS = (7, 16, 15, 15, 13, 20, 30, 14, 14, 12, 14, 11, 11, 13, 17, 24)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-SUMMARY_ALIGN = ["R", "L", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
+SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
 
 
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, headings_fill: tuple[int, int, int]) -> None:
@@ -746,6 +782,9 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, h
             row = table.row()
             row.cell(str(i))
             row.cell(o["symbol"])
+            row.cell(f"{o['current_price']:,.2f}" if o["current_price"] else "n/d")
+            row.cell(f"{o['target_price']:,.2f}" if o["target_price"] else "n/d")
+            row.cell(f"{o['upside'] * 100:+.1f}%" if o["upside"] is not None else "n/d")
             row.cell(sanitize(o["country"] or "n/a"))
             row.cell(sanitize(o["sector"] or "n/a"))
             row.cell(format_market_cap(o["market_cap"]))
@@ -922,6 +961,16 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 8, sanitize(f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"), new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", size=9)
+        pdf.set_x(pdf.l_margin)
+        price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
+        target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
+        upside_txt = f" ({o['upside'] * 100:+.1f}%)" if o["upside"] is not None else ""
+        pdf.cell(
+            0, 6,
+            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo (consenso analistas): {target_txt}{upside_txt}"),
+            link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
+        )
+
         pdf.set_x(pdf.l_margin)
         pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/d"
         sector_avg_txt = f"{o['sector_avg_pe']:.1f}" if o.get("sector_avg_pe") else "n/d"
