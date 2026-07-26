@@ -893,12 +893,20 @@ def center_in_remaining_page(pdf: FPDF, content_h: float) -> None:
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
 SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-# Precio/P.Objetivo ensanchadas: numeros largos en formato español (ej. el
-# precio de Samsung, "249.500,00") se partian en dos lineas con el ancho
-# anterior. "Analistas" (antes "# Analistas") ya no necesita tanto sitio
-# al quitarle el "#" (que además se partia en su propia linea, con
-# "Analistas" debajo, pareciendo un corchete).
-SUMMARY_WIDTHS = (7, 16, 20, 19, 16, 20, 20, 11, 18, 11, 13, 11, 10, 13, 17, 24)
+# Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
+# mas largo que debe caber sin partirse en cada columna, mas los 2mm que
+# fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
+# fpdf2 los reescala proporcionalmente para llenar el ancho imprimible, asi
+# que lo que importa es la proporcion entre ellos, no el valor absoluto.
+# Motivo del recalculo: con los anchos anteriores "Communication Services"
+# se partia A MITAD DE PALABRA ("Communicatio" / "n Services") porque ni
+# "Communication" (19,6mm) entraba en los 18,9mm utiles de la columna
+# Sector, y "COMPRA FUERTE" (24,5mm) no cabia en una linea, lo que hacia
+# que TODAS las filas ocuparan dos lineas. Ahora Sector admite
+# "Communication" y Recomendacion "COMPRA FUERTE" de una sola linea; se
+# recorta a cambio el sobrante de las columnas estrechas (#, P/E, PEG,
+# Score), que iban muy holgadas respecto a su contenido.
+SUMMARY_WIDTHS = (5, 16.5, 17, 17, 15.5, 19.5, 22.5, 13.5, 15, 10.5, 12.5, 8, 9, 13, 17.5, 27.5)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
