@@ -35,6 +35,11 @@ def answer_callback(callback_id: str) -> None:
 
 
 def main() -> None:
+    # Diagnostico temporal: getMe solo devuelve datos publicos del bot
+    # (nombre/usuario), pero confirma sin ambiguedad si el token es valido.
+    me = requests.get(f"{API}/getMe", timeout=15).json()
+    print(f"getMe ok={me.get('ok')} bot={me.get('result', {}).get('username')}")
+
     ensure_bot_command()
 
     updates = requests.get(f"{API}/getUpdates", timeout=15).json().get("result", [])
