@@ -785,7 +785,7 @@ PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150,
 # tonos elegidos a mano uno por uno.
 def _section_shade(t: float) -> tuple[int, int, int]:
     r0, g0, b0 = 70, 120, 175  # t=0: azul intenso (portada)
-    r1, g1, b1 = 232, 240, 247  # t=1: el mas suave (Noticias/Glosario)
+    r1, g1, b1 = 210, 225, 238  # t=1: el mas suave (Noticias/Glosario), pero claramente azul, no blanco
     return (round(r0 + (r1 - r0) * t), round(g0 + (g1 - g0) * t), round(b0 + (b1 - b0) * t))
 
 
