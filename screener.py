@@ -1173,6 +1173,8 @@ def send_telegram_document(path: str, caption: str) -> None:
             files={"document": f},
             timeout=30,
         )
+    if not resp.ok:
+        print(f"Telegram respondio {resp.status_code}: {resp.text}")
     resp.raise_for_status()
 
 
