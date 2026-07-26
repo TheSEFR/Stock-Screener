@@ -899,16 +899,19 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 # fpdf2 los reescala proporcionalmente para llenar el ancho imprimible, asi
 # que lo que importa es la proporcion entre ellos, no el valor absoluto.
 # Cada valor es el minimo que necesita esa columna: el ancho del texto mas
-# largo que debe mostrar (o de su cabecera en negrita, si es mas ancha) mas
-# los 2mm de margen interno. Sumados dan 241mm, asi que la tabla entra
+# largo que puede mostrar (o de su cabecera en negrita, si es mas ancha) mas
+# los 2mm de margen interno. Sumados dan 246mm, asi que la tabla entra
 # dentro de los margenes normales del documento (257mm imprimibles) con
-# ~16mm de holgura, que fpdf2 reparte proporcionalmente.
-# Con estos anchos TODA celda cabe en una sola linea -- incluidas
-# "Communication Services" (31,2mm) en Sector y "COMPRA FUERTE" (24,5mm) en
-# Recomendacion, que antes envolvian a dos lineas y hacian esas filas el
-# doble de altas -- de modo que todas las filas miden lo mismo y su altura
-# se puede fijar de golpe (ver line_height en render_summary_table).
-SUMMARY_WIDTHS = (5.1, 16.0, 16.1, 16.1, 14.5, 18.9, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 26.5)
+# ~11mm de holgura, que fpdf2 reparte proporcionalmente.
+# Con estos anchos TODA celda cabe en una sola linea, de modo que todas las
+# filas miden lo mismo y su altura se puede fijar de golpe (ver line_height
+# en render_summary_table). Los casos peores, que antes envolvian a dos
+# lineas y hacian esas filas el doble de altas, son:
+#   Sector         "Communication Services" (31,2mm)
+#   Recomendacion  "COMPRA NEUTRAL" (26,3mm; ojo, mas ancho que
+#                  "COMPRA FUERTE", que es el que se midio por error antes)
+#   Pais           "United Kingdom" (20,1mm; mas ancho que "United States")
+SUMMARY_WIDTHS = (5.1, 16.0, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
@@ -1521,7 +1524,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
-    section_header(pdf, "Seccion 3", f"3. Empresas de pequeña capitalizacion (Top {len(top_small)})")
+    section_header(pdf, "Seccion 3", "3. Empresas de pequeña capitalizacion")
     small_cap_intro = sanitize(
         f"Mismos criterios de la seccion 1, aplicados solo a acciones con "
         f"capitalizacion de mercado por debajo de "
