@@ -792,7 +792,12 @@ SEF_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "sef_logo.png"
 class ReportPDF(FPDF):
     def header(self) -> None:
         """Logo + marca 'SEF-Financial' repetidos en la esquina superior de
-        CADA pagina (incluida la portada), como pidio el usuario."""
+        cada pagina. En la portada no se dibuja aqui: lleva su propio logo
+        grande (ver build_pdf), igual que una carta con logo de cabecera
+        pequeño en las paginas interiores pero un logo grande en la
+        portada."""
+        if self.page_no() == 1:
+            return
         logo_size = 9
         x_logo = self.w - self.r_margin - logo_size
         y_logo = 5
@@ -975,14 +980,14 @@ def render_toc(pdf: FPDF, outline) -> None:
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(8)
     pdf.set_font("Helvetica", size=12)
-    for section in outline:
+    for i, section in enumerate(outline, start=1):
         link = pdf.add_link(page=section.page_number)
         indent = "    " * section.level
         pdf.set_x(pdf.l_margin)
         pdf.set_text_color(*NAVY)
         pdf.cell(
             0, 10,
-            sanitize(f"{indent}{section.name}  ...  pag. {section.page_number}"),
+            sanitize(f"{indent}{i}. {section.name}  ...  pag. {section.page_number}"),
             new_x="LMARGIN", new_y="NEXT", link=link,
         )
     pdf.set_text_color(*INK)
@@ -1013,10 +1018,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
 
     # --- Portada: institucional (navy + sans-serif), estilo nota de analisis
     # de renta variable. NO es una plantilla real de JPMorgan ni de ningun
-    # otro banco: ver clausula de no afiliacion en el aviso legal. El logo
-    # y la marca "SEF-FINANCIAL" los pone header() en todas las paginas.
+    # otro banco: ver clausula de no afiliacion en el aviso legal. Logo
+    # grande solo aqui (paginas interiores llevan la version pequeña via
+    # header()); dentro de los margenes normales del documento, no a sangre.
     pdf.add_page()
-    pdf.set_y(35)
+    if os.path.exists(SEF_LOGO_PATH):
+        logo_big = 32
+        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_big) / 2, y=16, w=logo_big, h=logo_big)
+    pdf.set_y(55)
     pdf.set_font("Helvetica", size=9, style="B")
     pdf.set_text_color(*NAVY)
     pdf.cell(0, 6, "RENTA VARIABLE - ANALISIS AUTOMATIZADO", align="C", new_x="LMARGIN", new_y="NEXT")
