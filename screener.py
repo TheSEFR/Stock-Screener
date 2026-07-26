@@ -780,8 +780,8 @@ PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150,
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
 # ReportPDF via pdf.page_background, atributo nativo de fpdf2): muy suaves
 # para que el texto negro siga siendo perfectamente legible.
-SMALLCAP_BG = (255, 247, 237)  # calido, tono naranja del logo
-GLOSSARY_NEWS_BG = (236, 241, 247)  # frio, tono navy del logo
+SMALLCAP_BG = (252, 220, 176)  # calido, tono naranja del logo (mas saturado)
+GLOSSARY_NEWS_BG = (194, 213, 232)  # frio, tono navy del logo (mas saturado)
 
 
 def pe_verdict(pe: float | None) -> str:
