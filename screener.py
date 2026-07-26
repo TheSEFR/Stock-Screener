@@ -780,21 +780,23 @@ PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150,
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
 # ReportPDF via pdf.page_background, atributo nativo de fpdf2): escala de
 # rojo estrictamente decreciente, interpolando en linea recta entre un rojo
-# saturado (seccion 1) y un rojo casi blanco (seccion 5/6) en pasos iguales,
-# en vez de tonos elegidos a mano uno por uno - muy suaves para que el
-# texto negro siga siendo perfectamente legible.
+# chillon (portada) y un rojo suave pero NO blanco (seccion 5/6) en pasos
+# iguales, en vez de tonos elegidos a mano uno por uno. Aun asi lo bastante
+# suaves en el extremo final para que el texto negro siga siendo legible.
 def _red_shade(t: float) -> tuple[int, int, int]:
-    r0, g0, b0 = 200, 130, 130  # t=0: mas saturado
-    r1, g1, b1 = 250, 235, 235  # t=1: casi blanco
+    r0, g0, b0 = 196, 60, 60  # t=0: rojo chillon (portada)
+    r1, g1, b1 = 238, 200, 200  # t=1: el mas suave (Noticias/Glosario), pero no blanco
     return (round(r0 + (r1 - r0) * t), round(g0 + (g1 - g0) * t), round(b0 + (b1 - b0) * t))
 
 
-_RED_SCALE = [_red_shade(i / 4) for i in range(5)]
-RED_FULL_BG = _RED_SCALE[0]  # Seccion 1: Panorama de mercado
-RED_DARK_BG = _RED_SCALE[1]  # Seccion 2: Tabla 10 principales acciones
-RED_MID_BG = _RED_SCALE[2]  # Seccion 3: Empresas de pequeña capitalizacion
-RED_SOFT_BG = _RED_SCALE[3]  # Seccion 4: Cesta tematica "Trump trade"
-RED_SOFTEST_BG = _RED_SCALE[4]  # Seccion 5 y 6: Noticias / Glosario
+_RED_SCALE = [_red_shade(i / 6) for i in range(7)]
+PORTADA_BG = _RED_SCALE[0]  # Portada
+INDICE_BG = _RED_SCALE[1]  # Indice
+RED_FULL_BG = _RED_SCALE[2]  # Seccion 1: Panorama de mercado
+RED_DARK_BG = _RED_SCALE[3]  # Seccion 2: Tabla 10 principales acciones
+RED_MID_BG = _RED_SCALE[4]  # Seccion 3: Empresas de pequeña capitalizacion
+RED_SOFT_BG = _RED_SCALE[5]  # Seccion 4: Cesta tematica "Trump trade"
+RED_SOFTEST_BG = _RED_SCALE[6]  # Seccion 5 y 6: Noticias / Glosario
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -1203,12 +1205,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # JPMorgan, ING ni de ningun otro banco: ver clausula de no afiliacion
     # en la pagina siguiente. Logo grande solo aqui (paginas interiores
     # llevan la version pequeña via header()).
+    pdf.page_background = PORTADA_BG
     pdf.add_page()
     logo_size = 28
     kicker_h = 6
     title_line_h = 14
     brand_h = 10
-    credit_h = 6
+    credit_h = 5  # altura de cada linea de la firma, en columna (3 lineas)
     gap_logo_kicker = 6
     gap_kicker_title = 3
     gap_title_brand = 14
@@ -1223,7 +1226,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
 
     block_height = (
         logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
-        + title_line_h * title_lines + gap_title_brand + brand_h + credit_h
+        + title_line_h * title_lines + gap_title_brand + brand_h + credit_h * 3
     )
     y = (pdf.h - block_height) / 2
 
@@ -1255,11 +1258,19 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_font("Helvetica", size=16, style="B")
     pdf.set_text_color(*NAVY)
     pdf.cell(pdf.epw, brand_h, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    # Firma en columna (una linea por dato) en vez de todo en una fila
+    # separado por guiones. BODY_GRAY (pensado para texto sobre fondo claro)
+    # no contrasta lo suficiente sobre el rojo chillon de la portada, asi
+    # que aqui se usa INK en su lugar.
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9)
-    pdf.set_text_color(*BODY_GRAY)
-    credit_line = f"Realizado por SEF-Financial - {datetime.now():%d/%m/%Y a las %H:%M} - Generado por IA"
-    pdf.cell(pdf.epw, credit_h, sanitize(credit_line), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.cell(pdf.epw, credit_h, "Realizado por SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(pdf.epw, credit_h, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.cell(pdf.epw, credit_h, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
 
     # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
@@ -1275,6 +1286,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # simulando el renderizado real) y dejando allow_extra_pages en False,
     # todas las paginas del indice se crean en la pasada normal, sin
     # insercion ni reordenamiento, y su pie sale bien a la primera.
+    pdf.page_background = INDICE_BG
     pdf.add_page()
     toc_pages = estimate_toc_pages(len(top), len(top_small), len(top_trump))
     # El tinte de "Panorama de mercado" se activa AQUI (tras crear la pagina
