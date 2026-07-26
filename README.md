@@ -14,6 +14,7 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
 - [¿Qué hace?](#qué-hace)
 - [Fuentes de datos combinadas](#fuentes-de-datos-combinadas)
 - [Criterios del ranking](#criterios-del-ranking)
+- [Factor de Calidad (desempate)](#factor-de-calidad-desempate)
 - [Configuración](#configuración)
   - [1. Crear el bot de Telegram](#1-crear-el-bot-de-telegram)
   - [2. Configurar los secrets en GitHub](#2-configurar-los-secrets-en-github)
@@ -98,7 +99,36 @@ small/micro caps, o en acciones poco seguidas fuera de EEUU) puede estar
 desactualizada, basada en muy pocas estimaciones, o no existir.
 
 El Top 10 (general) y el Top 5 (pequeña capitalización) con mayor score son
-los que se incluyen en el informe.
+los que se incluyen en el informe. En caso de empate en el score, desempata
+el **factor de Calidad** (ver más abajo) antes que el PEG.
+
+## Factor de Calidad (desempate)
+
+Además del score anterior, cada acción tiene una columna **Calidad**
+(`aciertos/aplicables`, igual formato que Score): una versión simplificada
+del [Piotroski F-Score](https://en.wikipedia.org/wiki/Piotroski_F-score),
+con 4 señales de solidez financiera:
+
+| Check | Condición |
+|---|---|
+| **ROE bueno** | Return on Equity > 15% |
+| **Margen bueno** | Margen operativo por encima de la media de su mismo sector |
+| **Deuda baja** | Deuda/Patrimonio < 100% |
+| **Liquidez buena** | Current ratio > 1.5 |
+
+**¿Por qué no se mezcla con el Score principal?** El estudio original de
+Piotroski (1976-1996) encontró que las acciones con F-Score alto batieron a
+las de F-Score bajo por ~23 puntos porcentuales al año — pero aplicado
+**solo a acciones ya baratas** (value), no a todo el mercado; usado de forma
+aislada el efecto es mucho más débil. Por eso aquí la Calidad no se suma al
+Score: se usa como **criterio de desempate**, después del Score y antes del
+PEG (ver `rank_top()` en `screener.py`), reforzando el ranking de
+valor/crecimiento en vez de sustituirlo.
+
+Como con cualquier factor de este tipo: ningún patrón histórico garantiza
+rendimiento futuro, y su efecto documentado tiende a debilitarse con el
+tiempo (más gente lo usa, el mercado lo arbitra). Esto mejora el criterio de
+desempate, no convierte el screener en una fórmula ganadora.
 
 ## Configuración
 
@@ -212,7 +242,12 @@ Ambos workflows también se pueden lanzar manualmente desde la pestaña
 | **P/E** | Precio / beneficio por acción (trailing). Se compara contra el promedio de su mismo sector, no un promedio global. Como referencia general: por debajo de 15 se suele considerar barato, entre 15 y 25 razonable, por encima de 25-30 caro / de alto crecimiento. |
 | **PEG** | P/E dividido por el % de crecimiento esperado de beneficios. Por debajo de 1.5 sugiere que el precio no está sobrepagando ese crecimiento; por debajo de 1 se suele considerar barato. |
 | **Crecim.** | Crecimiento interanual esperado del EPS. Consenso de analistas vía Yahoo Finance (`earningsGrowth`), ver la explicación completa de su origen [más arriba](#criterios-del-ranking). |
-| **Insider buy** | Si algún directivo o accionista relevante compró acciones con su propio dinero en los últimos 90 días (dato de comunicados SEC Form 4, vía Yahoo Finance). N/D = Yahoo no publica este dato para ese ticker (habitual fuera de EEUU); no cuenta ni a favor ni en contra. |
+| **Insider buy** | Si algún directivo o accionista relevante compró acciones con su propio dinero en los últimos 90 días. Fuente primaria: SEC EDGAR (Form 4 oficial); si no encuentra el ticker, respaldo vía Yahoo Finance. N/D = ninguna de las dos fuentes tiene el dato (habitual fuera de EEUU); no cuenta ni a favor ni en contra. |
+| **Calidad** | Versión simplificada del Piotroski F-Score (ROE, margen vs sector, deuda, liquidez). Ver [Factor de Calidad](#factor-de-calidad-desempate). |
+| **ROE** | Return on Equity: beneficio neto / patrimonio neto. Por encima del 15% se considera bueno. |
+| **Margen operativo** | Beneficio operativo / ingresos, comparado contra la media de su mismo sector. |
+| **Deuda/Patrimonio** | Deuda total / patrimonio neto, en %. Por debajo de 100 se considera apalancamiento conservador. |
+| **Liquidez** | Current ratio (activo corriente / pasivo corriente). Por encima de 1.5 se considera cómodo. |
 | **Cap.** | Capitalización de mercado (`marketCap`). Determina si una acción entra en la sección de pequeña capitalización. |
 | **# Analistas** | Número de analistas que cubren la acción según Yahoo Finance (`numberOfAnalystOpinions`). A menor cobertura, menos fiables son "Crecim." y "Recomendación". |
 | **Recomendación** | Consenso agregado de analistas de bancos y brokers que cubren la acción. |

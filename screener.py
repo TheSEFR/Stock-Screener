@@ -29,6 +29,9 @@ WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.txt")
 INSIDER_LOOKBACK_DAYS = 90
 PEG_MAX = 1.5
 EARNINGS_GROWTH_MIN = 0.15  # 15%
+ROE_MIN = 0.15  # 15%
+DEBT_EQUITY_MAX = 100  # yfinance lo expresa como % (100 = deuda igual al patrimonio)
+CURRENT_RATIO_MIN = 1.5
 TOP_N = 10
 NEWS_PER_TICKER = 2
 DESCRIPTION_MAX_CHARS = 500
@@ -348,22 +351,37 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 "insider_buying": has_recent_insider_buying(t),
                 "recommendation": recommendation,
                 "recommendation_source": recommendation_source,
+                # Señales de "calidad" (ver quality() y glosario "Calidad"):
+                # rentabilidad, margen, apalancamiento y liquidez.
+                "roe": info.get("returnOnEquity"),
+                "operating_margin": info.get("operatingMargins"),
+                "debt_to_equity": info.get("debtToEquity"),
+                "current_ratio": info.get("currentRatio"),
                 "description_en": (info.get("longBusinessSummary") or "")[:DESCRIPTION_MAX_CHARS],
             }
         )
 
-    # P/E medio POR SECTOR: comparar una farmaceutica suiza contra un
-    # semiconductor de EEUU con un unico promedio global no es representativo.
+    # P/E y margen operativo medios POR SECTOR: comparar una farmaceutica
+    # suiza contra un semiconductor de EEUU con un unico promedio global no
+    # es representativo (ni para P/E ni para margenes, que varian aun mas
+    # entre sectores: un supermercado y un software no son comparables).
     pe_by_sector = defaultdict(list)
+    margin_by_sector = defaultdict(list)
     for r in rows:
         if r["pe"]:
             pe_by_sector[r["sector"]].append(r["pe"])
+        if r["operating_margin"] is not None:
+            margin_by_sector[r["sector"]].append(r["operating_margin"])
     sector_avg_pe = {sector: sum(vals) / len(vals) for sector, vals in pe_by_sector.items()}
+    sector_avg_margin = {sector: sum(vals) / len(vals) for sector, vals in margin_by_sector.items()}
 
     valid_pe = [r["pe"] for r in rows if r["pe"]]
     global_avg_pe = sum(valid_pe) / len(valid_pe) if valid_pe else None
+    valid_margin = [r["operating_margin"] for r in rows if r["operating_margin"] is not None]
+    global_avg_margin = sum(valid_margin) / len(valid_margin) if valid_margin else None
     for r in rows:
         r["sector_avg_pe"] = sector_avg_pe.get(r["sector"], global_avg_pe)
+        r["sector_avg_margin"] = sector_avg_margin.get(r["sector"], global_avg_margin)
 
     return rows, global_avg_pe
 
@@ -387,16 +405,44 @@ def score(r: dict) -> None:
     r["score_ratio"] = (r["score"] / len(applicable)) if applicable else 0.0
 
 
+def quality(r: dict) -> None:
+    """Score de 'calidad' (version simplificada del Piotroski F-Score):
+    rentabilidad (ROE), margen operativo vs sector, apalancamiento y
+    liquidez. La evidencia academica (Piotroski 1976-1996 y estudios
+    posteriores) muestra que la calidad funciona sobre todo como FILTRO
+    dentro de acciones ya baratas, no como señal aislada — por eso aqui se
+    usa como desempate DESPUES del score de valor/crecimiento en
+    rank_top(), no mezclada en el mismo numero. Mismo criterio que score():
+    None si no hay dato, no penaliza."""
+    avg_margin = r.get("sector_avg_margin")
+    checks = {
+        "roe_bueno": None if r["roe"] is None else r["roe"] > ROE_MIN,
+        "margen_bueno": (
+            None if avg_margin is None or r["operating_margin"] is None
+            else r["operating_margin"] > avg_margin
+        ),
+        "deuda_baja": None if r["debt_to_equity"] is None else r["debt_to_equity"] < DEBT_EQUITY_MAX,
+        "liquidez_buena": None if r["current_ratio"] is None else r["current_ratio"] > CURRENT_RATIO_MIN,
+    }
+    r["quality_checks"] = checks
+    applicable = [v for v in checks.values() if v is not None]
+    r["quality_applicable"] = len(applicable)
+    r["quality_score"] = sum(applicable)
+    r["quality_ratio"] = (r["quality_score"] / len(applicable)) if applicable else 0.0
+
+
 def rank_top(rows: list[dict], n: int = TOP_N) -> list[dict]:
     for r in rows:
         score(r)
+        quality(r)
 
     def sort_key(r: dict) -> tuple:
         # Desempate deliberado: NO usar el orden del watchlist.txt (que
         # empieza por EEUU) como criterio implicito via sorted() estable,
         # eso favorecia sistematicamente a las primeras acciones de la lista.
+        # La calidad desempata DESPUES del score principal (ver quality()).
         peg = r["peg"] if r["peg"] is not None else float("inf")
-        return (-r["score_ratio"], -r["score"], peg)
+        return (-r["score_ratio"], -r["quality_ratio"], -r["score"], peg)
 
     ranked = sorted(rows, key=sort_key)
     return ranked[:n]
@@ -564,6 +610,51 @@ GLOSSARY = [
                      "basan en menos opiniones y se actualizan con menos "
                      "frecuencia. n/d = Yahoo no reporta cobertura para ese "
                      "ticker."),
+    ("Calidad", "Version simplificada del Piotroski F-Score: suma 4 señales "
+                "de solidez financiera (rentabilidad, margen, apalancamiento "
+                "y liquidez, detalladas en 'ROE', 'Margen operativo', "
+                "'Deuda/Patrimonio' y 'Liquidez' mas abajo). Igual que "
+                "'Score', se muestra como aciertos/aplicables porque no "
+                "todas las acciones tienen los 4 datos disponibles. "
+                "Evidencia: el estudio original de Piotroski (1976-1996) "
+                "encontro que las acciones con F-Score alto batieron a las "
+                "de F-Score bajo en, de media, unos 23 puntos porcentuales "
+                "al año — PERO ese estudio aplicaba el F-Score solo a "
+                "acciones YA baratas (value), no a todo el mercado; usado "
+                "solo, el efecto es mucho mas debil. Por eso en este informe "
+                "la Calidad NO se mezcla con el Score principal: se usa como "
+                "criterio de DESEMPATE despues de 'Score' (ver rank_top en "
+                "el codigo), asi refuerza el ranking de valor/crecimiento en "
+                "vez de sustituirlo. Ademas, ningun factor de este tipo "
+                "garantiza rendimiento futuro: su efecto historico varia "
+                "por ciclo de mercado y tiende a debilitarse con el tiempo."),
+    ("ROE", "Return on Equity (retorno sobre el patrimonio neto): beneficio "
+            "neto dividido entre el patrimonio de los accionistas. Mide que "
+            "tan eficiente es la empresa generando beneficio con el capital "
+            "que ya tiene, sin depender de mas deuda o mas emision de "
+            "acciones. Por encima del 15% se considera bueno en este "
+            "informe. Fuente: Yahoo Finance (financialData)."),
+    ("Margen operativo", "Beneficio operativo dividido entre ingresos: que "
+                         "parte de cada venta se convierte en beneficio "
+                         "antes de intereses e impuestos. Varia mucho por "
+                         "sector (un supermercado y una empresa de software "
+                         "no son comparables), por eso se compara contra la "
+                         "media DEL MISMO SECTOR, igual que el P/E. Fuente: "
+                         "Yahoo Finance (financialData)."),
+    ("Deuda/Patrimonio", "Deuda total dividida entre el patrimonio neto, en "
+                         "porcentaje (100 = la empresa debe tanto como vale "
+                         "su patrimonio). Por debajo de 100 se considera "
+                         "apalancamiento conservador en este informe: menos "
+                         "riesgo de que una subida de tipos de interes o una "
+                         "mala racha ahogue a la empresa. Fuente: Yahoo "
+                         "Finance (financialData)."),
+    ("Liquidez", "Current ratio: activo corriente dividido entre pasivo "
+                 "corriente, es decir cuantas veces puede la empresa cubrir "
+                 "sus deudas de corto plazo con lo que tiene a mano. Por "
+                 "encima de 1.5 se considera comodo en este informe; por "
+                 "debajo de 1 significa que el activo corriente no llega a "
+                 "cubrir el pasivo corriente. Fuente: Yahoo Finance "
+                 "(financialData)."),
     ("Cesta Trump trade", "IMPORTANTE: esta cesta NO es el patrimonio "
                      "personal de Donald Trump ni sale de ningun informe de "
                      "activos declarado (esos informes publicos, cuando "
@@ -627,12 +718,12 @@ def section_header(pdf: FPDF, text: str, color: tuple[int, int, int]) -> None:
     pdf.ln(3)
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Pais", "Sector", "Cap.", "# Analistas", "Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
-SUMMARY_LINK_COLS = {"Cap.", "# Analistas", "Score", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-SUMMARY_WIDTHS = (7, 16, 24, 40, 16, 16, 12, 12, 12, 14, 18, 30)
+SUMMARY_HEADERS = ["#", "Ticker", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
+SUMMARY_LINK_COLS = {"Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
+SUMMARY_WIDTHS = (7, 16, 22, 34, 15, 15, 12, 14, 11, 11, 13, 17, 28)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-SUMMARY_ALIGN = ["R", "L", "L", "L", "R", "R", "R", "R", "R", "R", "C", "L"]
+SUMMARY_ALIGN = ["R", "L", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
 
 
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, headings_fill: tuple[int, int, int]) -> None:
@@ -660,6 +751,7 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, h
             row.cell(format_market_cap(o["market_cap"]))
             row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
             row.cell(f"{o['score']}/{o['checks_applicable']}")
+            row.cell(f"{o['quality_score']}/{o['quality_applicable']}")
             row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/a")
             row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/a")
             row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/a")
@@ -849,6 +941,22 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             0, 6,
             sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
             link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
+        )
+
+        roe_txt = f"{o['roe'] * 100:.1f}%" if o["roe"] is not None else "n/d"
+        margin_txt = f"{o['operating_margin'] * 100:.1f}%" if o["operating_margin"] is not None else "n/d"
+        sector_margin_txt = f"{o['sector_avg_margin'] * 100:.1f}%" if o.get("sector_avg_margin") else "n/d"
+        debt_txt = f"{o['debt_to_equity']:.0f}" if o["debt_to_equity"] is not None else "n/d"
+        liquidity_txt = f"{o['current_ratio']:.2f}" if o["current_ratio"] is not None else "n/d"
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            pdf.epw, 6,
+            sanitize(
+                f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
+                f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
+                f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
+            ),
+            link=glossary_links["Calidad"], align="L",
         )
 
         banks = o.get("strong_buy_banks") or []
