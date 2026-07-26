@@ -816,6 +816,15 @@ class ReportPDF(FPDF):
     def footer(self) -> None:
         if self.page_no() == 1:
             return  # portada sin pie de pagina (es la unica pagina "de cubierta")
+        if getattr(self, "in_toc_rendering", False):
+            # Si el indice necesita paginas extra (allow_extra_pages=True,
+            # por los subpuntos de cada accion), esas paginas se crean e
+            # insertan al final del documento y luego se reordenan; el
+            # texto de este pie ya quedaria dibujado con el numero de
+            # pagina TEMPORAL de ese momento (ej. "18 de 18") y no se
+            # actualiza al recolocar la pagina, asi que se omite aqui en
+            # vez de imprimir un numero incorrecto.
+            return
         self.set_y(-12)
         self.set_font("Helvetica", size=8)
         self.set_text_color(*BODY_GRAY)
@@ -1042,6 +1051,39 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
             blk.ln(4)
 
 
+def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
+    """Cuenta cuantas paginas necesitara el indice renderizando render_toc()
+    DE VERDAD sobre un PDF de prueba desechable, para reservarlas EXACTAS
+    con insert_toc_placeholder. Un calculo aproximado a mano (alturas fijas
+    estimadas) se desvio de la realidad; simularlo con el mismo codigo que
+    se usara luego es la unica forma de que coincida siempre. Reservar de
+    mas o de menos obligaria a fpdf2 a insertar/quitar paginas a
+    posteriori (allow_extra_pages), lo que deja mal el numero de pagina ya
+    dibujado en el pie de la ultima pagina insertada (bug conocido de
+    fpdf2: el pie se dibuja con la posicion temporal antes de reordenar)."""
+    from fpdf.outline import OutlineSection
+
+    def section(name: str, level: int) -> OutlineSection:
+        return OutlineSection(name=name, level=level, page_number=1, dest=None)
+
+    fake_outline = [section("Panorama de mercado", 0), section("Tabla resumen (Top 10)", 0)]
+    fake_outline += [section(f"T{i}", 1) for i in range(n_top)]
+    fake_outline.append(section("Empresas de pequeña capitalizacion", 0))
+    fake_outline += [section(f"S{i}", 1) for i in range(n_small)]
+    fake_outline.append(section("Cesta tematica 'Trump trade'", 0))
+    fake_outline += [section(f"P{i}", 1) for i in range(n_trump)]
+    fake_outline.append(section("Noticias recientes", 0))
+    fake_outline.append(section("Glosario de variables", 0))
+
+    scratch = ReportPDF(orientation="L", format="A4")
+    scratch.set_auto_page_break(True, margin=15)
+    scratch.set_margins(left=18, top=10, right=18)
+    scratch.add_page()
+    start_page = scratch.page_no()
+    render_toc(scratch, fake_outline)
+    return scratch.page_no() - start_page + 1
+
+
 def render_toc(pdf: FPDF, outline) -> None:
     # insert_toc_placeholder restaura la Y guardada al momento de reservar la
     # pagina, pero no la X: sin este set_x, el titulo hereda la posicion X
@@ -1146,9 +1188,22 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.cell(pdf.epw, 6, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
 
-    # --- Indice (pagina reservada, se rellena sola al final) ---
+    # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
+    # Con un subpunto por accion (ver render_detailed_descriptions) el
+    # indice puede necesitar mas de 1 pagina. Se reserva el numero exacto
+    # (estimate_toc_pages) y NO se usa allow_extra_pages=True: con esa
+    # opcion fpdf2 trata CUALQUIER salto de pagina durante el renderizado
+    # del indice como una insercion nueva al final del documento (a
+    # reordenar despues), incluso si la reserva ya era del tamaño justo;
+    # el pie de esa pagina insertada queda dibujado con el numero de
+    # pagina temporal (mal) porque el reordenamiento posterior no vuelve a
+    # dibujar el pie. Reservando el numero exacto de paginas (calculado
+    # simulando el renderizado real) y dejando allow_extra_pages en False,
+    # todas las paginas del indice se crean en la pasada normal, sin
+    # insercion ni reordenamiento, y su pie sale bien a la primera.
     pdf.add_page()
-    pdf.insert_toc_placeholder(render_toc)
+    toc_pages = estimate_toc_pages(len(top), len(top_small), len(top_trump))
+    pdf.insert_toc_placeholder(render_toc, pages=toc_pages)
 
     # --- Seccion 1: Panorama de mercado (graficas circulares + aviso legal) ---
     # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
