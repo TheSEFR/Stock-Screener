@@ -841,6 +841,83 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -
             row.cell(o["recommendation"])
 
 
+def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links: dict, theme_map: dict | None = None) -> None:
+    """Ficha detallada por accion (precio/objetivo, P/E, crecimiento,
+    calidad, bancos y descripcion). Se usa en las 3 secciones con tabla
+    (principal, small caps, Trump trade), justo despues de su tabla resumen."""
+    for i, o in enumerate(entries, start=1):
+        pdf.set_font("Helvetica", size=12, style="B")
+        pdf.set_x(pdf.l_margin)
+        header = f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
+        theme = theme_map.get(o["symbol"], "") if theme_map else ""
+        if theme:
+            header += f" - {theme}"
+        pdf.cell(0, 8, sanitize(header), new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_font("Helvetica", size=9)
+        pdf.set_text_color(*ACCENT_LINK)  # lineas con enlace al glosario
+        pdf.set_x(pdf.l_margin)
+        price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
+        target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
+        upside_txt = f" ({o['upside'] * 100:+.1f}%)" if o["upside"] is not None else ""
+        pdf.cell(
+            0, 6,
+            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
+            link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
+        )
+
+        pdf.set_x(pdf.l_margin)
+        pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/d"
+        sector_avg_txt = f"{o['sector_avg_pe']:.1f}" if o.get("sector_avg_pe") else "n/d"
+        pdf.cell(
+            0, 6,
+            sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
+            link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
+        )
+
+        # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
+        # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
+        growth_txt = f"{o['growth'] * 100:.1f}%" if o["growth"] else "n/d"
+        growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
+        rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(
+            0, 6,
+            sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
+            link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
+        )
+
+        roe_txt = f"{o['roe'] * 100:.1f}%" if o["roe"] is not None else "n/d"
+        margin_txt = f"{o['operating_margin'] * 100:.1f}%" if o["operating_margin"] is not None else "n/d"
+        sector_margin_txt = f"{o['sector_avg_margin'] * 100:.1f}%" if o.get("sector_avg_margin") else "n/d"
+        debt_txt = f"{o['debt_to_equity']:.0f}" if o["debt_to_equity"] is not None else "n/d"
+        liquidity_txt = f"{o['current_ratio']:.2f}" if o["current_ratio"] is not None else "n/d"
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            pdf.epw, 6,
+            sanitize(
+                f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
+                f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
+                f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
+            ),
+            link=glossary_links["Calidad"], align="L",
+        )
+
+        banks = o.get("strong_buy_banks") or []
+        banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
+        pdf.ln(6)
+        pdf.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
+
+        pdf.set_x(pdf.l_margin)
+        description = o.get("description_es") or "Sin descripcion disponible."
+        pdf.multi_cell(pdf.epw, 5, sanitize(description), align="L")
+        pdf.ln(4)
+
+
 def render_toc(pdf: FPDF, outline) -> None:
     # insert_toc_placeholder restaura la Y guardada al momento de reservar la
     # pagina, pero no la X: sin este set_x, el titulo hereda la posicion X
@@ -944,6 +1021,8 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
     pdf.ln(3)
     render_summary_table(pdf, top, glossary_links)
+    pdf.ln(4)
+    render_detailed_descriptions(pdf, top, glossary_links)
 
     # --- Seccion 2: Empresas de pequeña capitalizacion ---
     # add_page() antes de start_section: si no, el indice enlaza a la
@@ -972,15 +1051,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     if top_small:
         render_summary_table(pdf, top_small, glossary_links)
         pdf.ln(4)
-        for o in top_small:
-            pdf.set_font("Helvetica", size=9, style="B")
-            pdf.set_x(pdf.l_margin)
-            pdf.cell(0, 6, sanitize(f"{o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'}, cap. {format_market_cap(o['market_cap'])})"), new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("Helvetica", size=8)
-            pdf.set_x(pdf.l_margin)
-            desc = o.get("description_es") or "Sin descripcion disponible."
-            pdf.multi_cell(pdf.epw, 4, sanitize(desc), align="L")
-            pdf.ln(2)
+        render_detailed_descriptions(pdf, top_small, glossary_links)
     else:
         pdf.set_font("Helvetica", size=9)
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
@@ -1010,93 +1081,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.ln(3)
     render_summary_table(pdf, top_trump, glossary_links)
     pdf.ln(4)
-    for o in top_trump:
-        theme = TRUMP_TRADE_THEMES.get(o["symbol"], "")
-        pdf.set_font("Helvetica", size=9, style="B")
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(0, 6, sanitize(f"{o['symbol']} - {theme}"), new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", size=8)
-        pdf.set_x(pdf.l_margin)
-        desc = o.get("description_es") or "Sin descripcion disponible."
-        pdf.multi_cell(pdf.epw, 4, sanitize(desc), align="L")
-        pdf.ln(2)
+    render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
 
-    # --- Seccion 4: Descripcion detallada por accion (Top 10 principal) ---
-    pdf.add_page()
-    pdf.start_section("Descripcion detallada por accion")
-    section_header(pdf, "Seccion 4", "Descripcion detallada por accion")
-    for i, o in enumerate(top, start=1):
-        pdf.set_font("Helvetica", size=12, style="B")
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(0, 8, sanitize(f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"), new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_font("Helvetica", size=9)
-        pdf.set_text_color(*ACCENT_LINK)  # lineas con enlace al glosario
-        pdf.set_x(pdf.l_margin)
-        price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
-        target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
-        upside_txt = f" ({o['upside'] * 100:+.1f}%)" if o["upside"] is not None else ""
-        pdf.cell(
-            0, 6,
-            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
-            link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
-        )
-
-        pdf.set_x(pdf.l_margin)
-        pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/d"
-        sector_avg_txt = f"{o['sector_avg_pe']:.1f}" if o.get("sector_avg_pe") else "n/d"
-        pdf.cell(
-            0, 6,
-            sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
-            link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
-        )
-
-        # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
-        # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
-        growth_txt = f"{o['growth'] * 100:.1f}%" if o["growth"] else "n/d"
-        growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
-        rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(
-            0, 6,
-            sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
-            link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
-        )
-
-        roe_txt = f"{o['roe'] * 100:.1f}%" if o["roe"] is not None else "n/d"
-        margin_txt = f"{o['operating_margin'] * 100:.1f}%" if o["operating_margin"] is not None else "n/d"
-        sector_margin_txt = f"{o['sector_avg_margin'] * 100:.1f}%" if o.get("sector_avg_margin") else "n/d"
-        debt_txt = f"{o['debt_to_equity']:.0f}" if o["debt_to_equity"] is not None else "n/d"
-        liquidity_txt = f"{o['current_ratio']:.2f}" if o["current_ratio"] is not None else "n/d"
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(
-            pdf.epw, 6,
-            sanitize(
-                f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
-                f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
-                f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
-            ),
-            link=glossary_links["Calidad"], align="L",
-        )
-
-        banks = o.get("strong_buy_banks") or []
-        banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
-        pdf.ln(6)
-        pdf.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
-
-        pdf.set_x(pdf.l_margin)
-        description = o.get("description_es") or "Sin descripcion disponible."
-        pdf.multi_cell(pdf.epw, 5, sanitize(description), align="L")
-        pdf.ln(4)
-
-    # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
+    # --- Seccion 4: Noticias recientes (al final, antes del glosario) ---
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
+    section_header(pdf, "Seccion 4", "Noticias recientes (traducidas)")
     seen_symbols = set()
     for o in top + top_small + top_trump:
         if o["symbol"] in seen_symbols:
@@ -1129,11 +1119,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             pdf.ln(2)
         pdf.ln(2)
 
-    # --- Seccion 6: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 5: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 6", "Glosario de variables")
+    section_header(pdf, "Seccion 5", "Glosario de variables")
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)

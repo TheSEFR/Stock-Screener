@@ -41,10 +41,11 @@ Para cada ticker de la [watchlist](watchlist.txt), `screener.py`:
    "Trump trade"** (ver más abajo), y enriquece las tres con noticias
    recientes traducidas al español, sentimiento heurístico de esas noticias
    y bancos con nota de compra fuerte.
-4. Genera un **PDF** (`informe.pdf`) con portada, índice navegable, tabla
-   resumen, sección de pequeña capitalización, cesta "Trump trade",
-   descripción detallada por acción, noticias y un glosario con
-   hipervínculos.
+4. Genera un **PDF** (`informe.pdf`) con portada, índice navegable y, para
+   cada grupo (tabla resumen principal, pequeña capitalización, cesta
+   "Trump trade"), su tabla y justo debajo la ficha detallada por acción de
+   ese mismo grupo (precio, P/E, crecimiento, calidad, bancos y
+   descripción). Cierra con noticias y un glosario con hipervínculos.
 5. Envía el PDF como documento a un chat/canal de **Telegram**.
 
 Además, `bot_listener.py` escucha el botón *"Generar informe ahora"* (o el
@@ -74,7 +75,7 @@ solo con Yahoo.
 | Fuente | Qué aporta | Configuración |
 |---|---|---|
 | **SEC EDGAR** | Fuente PRIMARIA y oficial de insider buying (Form 4) para acciones que reportan a la SEC (EE.UU.). Gratis, sin API key. Si Yahoo tiene el dato pero EDGAR no encuentra el ticker o falla la consulta, se usa Yahoo como respaldo. No amplía cobertura fuera de EE.UU. (esas empresas no presentan Form 4 en ningún sitio). | Opcional pero recomendado: variable `SEC_EDGAR_USER_AGENT` con algo que te identifique (la SEC exige un User-Agent descriptivo), ej. `"MiScreener contacto@tudominio.com"`. Sin ella se usa un valor genérico que funciona pero no es buena práctica. |
-| **Financial Modeling Prep (FMP)** | Respaldo de crecimiento, número de analistas y recomendación **solo** cuando Yahoo no tiene cobertura suficiente. Cuando se usa, aparece marcado como `(via FMP)` en la sección "Descripción detallada por acción" del PDF. | Requiere una API key propia (gratis en [financialmodelingprep.com](https://site.financialmodelingprep.com), plan free = 250 peticiones/día). Variable `FMP_API_KEY`. Sin ella, esta llamada se salta directamente. |
+| **Financial Modeling Prep (FMP)** | Respaldo de crecimiento, número de analistas y recomendación **solo** cuando Yahoo no tiene cobertura suficiente. Cuando se usa, aparece marcado como `(via FMP)` en la ficha detallada de cada acción del PDF. | Requiere una API key propia (gratis en [financialmodelingprep.com](https://site.financialmodelingprep.com), plan free = 250 peticiones/día). Variable `FMP_API_KEY`. Sin ella, esta llamada se salta directamente. |
 
 Añade estas variables como secrets de GitHub (igual que `TELEGRAM_BOT_TOKEN`)
 o en tu `.env` local si quieres activarlas.
