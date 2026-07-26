@@ -26,8 +26,12 @@ jobs:
           SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}
       # Ademas de enviarse a Telegram, se guarda como artifact descargable
       # desde la pestaña Actions (util para depurar sin depender de Telegram).
+      # if: always() -> se sube aunque el paso anterior falle (ej. Telegram
+      # mal configurado), siempre que el PDF llegara a generarse.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: informe-pdf
           path: informe.pdf
           retention-days: 14
+          if-no-files-found: ignore
