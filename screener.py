@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from functools import lru_cache
+from typing import Callable
 
 import pandas as pd
 import requests
@@ -879,6 +880,12 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
+# Tope del aire extra que se mete entre dos fichas de la misma hoja (ver
+# render_detailed_descriptions): sin tope, una hoja con solo dos fichas
+# cortas dejaria un vacio enorme justo en el medio.
+MAX_FICHA_GAP = 30
+
+
 def center_in_remaining_page(pdf: FPDF, content_h: float) -> None:
     """Empuja el cursor la mitad del hueco que quede hasta el pie de
     pagina, para que un bloque de altura 'content_h' quede centrado
@@ -889,6 +896,17 @@ def center_in_remaining_page(pdf: FPDF, content_h: float) -> None:
     leftover = available_h - content_h
     if leftover > 0:
         pdf.ln(leftover / 2)
+
+
+def measured_height(pdf: FPDF, render: Callable[[FPDF], None]) -> float:
+    """Altura que ocuparia 'render' si se pintase aqui, midiendola en seco
+    con pdf.offset_rendering (que rebobina el estado al salir, asi que no
+    deja nada dibujado). Sirve para centrar verticalmente bloques cuya
+    altura no se conoce de antemano, como una tabla resumen."""
+    y0 = pdf.y
+    with pdf.offset_rendering() as dummy:
+        render(dummy)
+        return dummy.y - y0
 
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
@@ -1142,13 +1160,28 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
     if current:
         groups.append(current)
 
-    # 3) Pintar cada grupo en su hoja, centrado verticalmente.
+    # 3) Pintar cada grupo en su hoja, repartiendo el sobrante ENTRE las
+    #    fichas en vez de dejarlo todo como margen arriba y abajo: el
+    #    sobrante se divide en (numero de huecos + 1) partes iguales, cada
+    #    hueco entre fichas se lleva una, y la parte restante se reparte
+    #    mitad arriba / mitad abajo. Asi la primera ficha de la hoja sube,
+    #    las siguientes bajan y queda mas aire entre subsecciones, sin
+    #    dejar un vacio grande al final de la hoja. Con una sola ficha en
+    #    la hoja no hay huecos, asi que queda simplemente centrada.
     for group_i, group in enumerate(groups):
         if group_i > 0:
             pdf.add_page()
         group_h = sum(heights[idx] for idx in group)
-        center_in_remaining_page(pdf, group_h)
-        for idx in group:
+        n_gaps = len(group) - 1
+        available_h = (pdf.h - pdf.b_margin) - pdf.y
+        leftover = max(0.0, available_h - group_h)
+        gap = min(leftover / (n_gaps + 1), MAX_FICHA_GAP) if n_gaps else 0.0
+        residual = leftover - gap * n_gaps
+        if residual > 0:
+            pdf.ln(residual / 2)
+        for position, idx in enumerate(group):
+            if position > 0:
+                pdf.ln(gap)
             o = entries[idx]
             _render_ficha(
                 pdf, pdf.l_margin, pdf.epw, idx + 1, o, glossary_links,
@@ -1416,15 +1449,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     )
     pdf.set_font("Helvetica", size=7.5)
     disclaimer_h = pdf.multi_cell(pdf.epw, 4, disclaimer_text, align="L", dry_run=True, output="HEIGHT")
-    # El bloque (subtitulo + graficas + aviso legal) se centra en el hueco
-    # que queda bajo la cabecera, en vez de quedarse pegado arriba con un
-    # hueco enorme al final de la pagina: se mide su altura total y se
-    # reparte la mitad del sobrante como margen superior.
+    # Subtitulo y graficas van pegados a la cabecera (sin centrar el bloque
+    # entero, que era lo que abria un hueco grande entre el titulo de la
+    # seccion y las graficas); el aviso legal se ancla abajo, asi que el
+    # sobrante queda entre las graficas y el aviso en vez de acumularse
+    # justo debajo del titulo.
     subtitle_gap = 6
     chart_block_h = 85
     line_gap = 4
-    content_h = 6 + subtitle_gap + chart_block_h + line_gap + disclaimer_h
-    center_in_remaining_page(pdf, content_h)
 
     pdf.set_font("Helvetica", size=9, style="I")
     pdf.set_text_color(*BODY_GRAY)
@@ -1444,6 +1476,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Sectores - Top {len(top)}", dict(top_sector_counts.most_common()))
     pdf.set_y(y0 + chart_block_h)
 
+    # Aviso legal anclado al pie de la pagina (no justo debajo de las
+    # graficas), para que el sobrante de la hoja quede aqui.
+    bottom_y = (pdf.h - pdf.b_margin) - disclaimer_h - line_gap
+    if bottom_y > pdf.get_y():
+        pdf.set_y(bottom_y)
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.3)
     y = pdf.get_y()
@@ -1460,14 +1497,19 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Principales acciones")
     section_header(pdf, "Seccion 2", "2. Principales acciones")
+    # La tabla va en esta misma hoja, junto a su cabecera/intro; lo que se
+    # separa son las fichas detalladas, que empiezan en la hoja siguiente.
+    # El conjunto (intro + tabla) se centra en el hueco que queda bajo la
+    # cabecera, midiendo antes la tabla en seco.
+    intro_top = "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario)."
+    pdf.set_font("Helvetica", size=8, style="I")
+    block_h = 6 + 3 + measured_height(pdf, lambda p: render_summary_table(p, top, glossary_links, section_bg=SECTION2_BG))
+    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, intro_top, new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
-    # La tabla va en esta misma hoja, justo bajo su cabecera/intro; lo que
-    # se separa son las fichas detalladas, que empiezan en la hoja
-    # siguiente (antes iban pegadas debajo de la tabla).
     render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
     pdf.add_page()
     render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
@@ -1492,6 +1534,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         f"fiables el 'Crecim.' y la 'Recomendacion' (ver Glosario), y suelen "
         f"tener mayor volatilidad y menor liquidez."
     )
+    # Intro + tabla centrados juntos bajo la cabecera, igual que en la
+    # Seccion 2 (la tabla se mide en seco para conocer su altura).
+    pdf.set_font("Helvetica", size=8, style="I")
+    small_cap_intro_h = pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L", dry_run=True, output="HEIGHT")
+    block_h = small_cap_intro_h + 3
+    if top_small:
+        block_h += measured_height(pdf, lambda p: render_summary_table(p, top_small, glossary_links, section_bg=SECTION3_BG))
+    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L")
@@ -1523,6 +1573,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
         "venta."
     )
+    # Intro + tabla centrados juntos bajo la cabecera, igual que en las
+    # secciones 2 y 3 (la tabla se mide en seco para conocer su altura).
+    pdf.set_font("Helvetica", size=8, style="I")
+    trump_intro_h = pdf.multi_cell(pdf.epw, 5, trump_intro, align="L", dry_run=True, output="HEIGHT")
+    block_h = trump_intro_h + 3 + measured_height(pdf, lambda p: render_summary_table(p, top_trump, glossary_links, section_bg=SECTION4_BG))
+    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(pdf.epw, 5, trump_intro, align="L")
