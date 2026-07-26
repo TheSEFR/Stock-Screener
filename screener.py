@@ -12,7 +12,6 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import Callable
 
 import pandas as pd
 import requests
@@ -880,33 +879,17 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
-# Tope del aire extra que se mete entre dos fichas de la misma hoja (ver
-# render_detailed_descriptions): sin tope, una hoja con solo dos fichas
-# cortas dejaria un vacio enorme justo en el medio.
-MAX_FICHA_GAP = 30
+# Aire extra entre dos fichas de la misma hoja y margen extra sobre la
+# primera (ver render_detailed_descriptions). Con topes bajos: separan las
+# subsecciones con claridad pero sin abrir un vacio en medio de la hoja, y
+# la primera ficha queda arriba en vez de empujada hacia el centro.
+MAX_FICHA_GAP = 8
+MAX_FICHA_TOP_PAD = 6
 
-
-def center_in_remaining_page(pdf: FPDF, content_h: float) -> None:
-    """Empuja el cursor la mitad del hueco que quede hasta el pie de
-    pagina, para que un bloque de altura 'content_h' quede centrado
-    verticalmente en el espacio restante en vez de pegado arriba con un
-    hueco enorme debajo (p.ej. la intro corta de una seccion cuya tabla
-    ahora vive en su propia hoja aparte)."""
-    available_h = (pdf.h - pdf.b_margin) - pdf.get_y()
-    leftover = available_h - content_h
-    if leftover > 0:
-        pdf.ln(leftover / 2)
-
-
-def measured_height(pdf: FPDF, render: Callable[[FPDF], None]) -> float:
-    """Altura que ocuparia 'render' si se pintase aqui, midiendola en seco
-    con pdf.offset_rendering (que rebobina el estado al salir, asi que no
-    deja nada dibujado). Sirve para centrar verticalmente bloques cuya
-    altura no se conoce de antemano, como una tabla resumen."""
-    y0 = pdf.y
-    with pdf.offset_rendering() as dummy:
-        render(dummy)
-        return dummy.y - y0
+# Margen lateral (mm) reservado solo para las tablas resumen: mas estrecho
+# que el del texto (20mm), asi las tablas salen mas anchas y sus columnas
+# van mas holgadas. Ver render_summary_table.
+TABLE_SIDE_MARGIN = 10
 
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
@@ -990,8 +973,19 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
     ('section_bg', aclarado en dos proporciones distintas) en vez de un
     gris fijo: asi la tabla encaja con el tono de cada seccion en vez de
     verse como un bloque blanco pegado encima. Lineas finas horizontales
-    — mismo tratamiento en las 3 tablas del informe."""
+    — mismo tratamiento en las 3 tablas del informe.
+
+    La tabla se dibuja con un margen lateral propio (TABLE_SIDE_MARGIN, mas
+    estrecho que el del texto) para que salga mas ancha y sus columnas vayan
+    mas holgadas; los margenes se restauran al terminar. fpdf2 reparte
+    col_widths sobre el ancho imprimible, asi que basta con estrechar los
+    margenes antes de abrir la tabla."""
     from fpdf.fonts import FontFace
+
+    prev_l, prev_r = pdf.l_margin, pdf.r_margin
+    pdf.set_left_margin(TABLE_SIDE_MARGIN)
+    pdf.set_right_margin(TABLE_SIDE_MARGIN)
+    pdf.set_x(TABLE_SIDE_MARGIN)
 
     table_base_bg = _lighten(section_bg, 0.6)  # franja "menos azul"
     table_stripe_bg = _lighten(section_bg, 0.35)  # franja "mas azul" (y cabecera)
@@ -1029,6 +1023,10 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             insider = o["insider_buying"]
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
             row.cell(o["recommendation"])
+
+    pdf.set_left_margin(prev_l)
+    pdf.set_right_margin(prev_r)
+    pdf.set_x(prev_l)
 
 
 def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_links: dict, section_number: int, theme: str, register_section: bool = True) -> None:
@@ -1177,8 +1175,11 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
         leftover = max(0.0, available_h - group_h)
         gap = min(leftover / (n_gaps + 1), MAX_FICHA_GAP) if n_gaps else 0.0
         residual = leftover - gap * n_gaps
+        # El resto se va casi todo al pie de la hoja: sobre la primera ficha
+        # solo se deja un pelin de aire (MAX_FICHA_TOP_PAD) para que arranque
+        # arriba en vez de quedar empujada al centro.
         if residual > 0:
-            pdf.ln(residual / 2)
+            pdf.ln(min(residual / 2, MAX_FICHA_TOP_PAD))
         for position, idx in enumerate(group):
             if position > 0:
                 pdf.ln(gap)
@@ -1497,17 +1498,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Principales acciones")
     section_header(pdf, "Seccion 2", "2. Principales acciones")
-    # La tabla va en esta misma hoja, junto a su cabecera/intro; lo que se
+    # La tabla va en esta misma hoja, bajo su cabecera/intro; lo que se
     # separa son las fichas detalladas, que empiezan en la hoja siguiente.
-    # El conjunto (intro + tabla) se centra en el hueco que queda bajo la
-    # cabecera, midiendo antes la tabla en seco.
-    intro_top = "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario)."
-    pdf.set_font("Helvetica", size=8, style="I")
-    block_h = 6 + 3 + measured_height(pdf, lambda p: render_summary_table(p, top, glossary_links, section_bg=SECTION2_BG))
-    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 6, intro_top, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
     render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
@@ -1534,14 +1529,6 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         f"fiables el 'Crecim.' y la 'Recomendacion' (ver Glosario), y suelen "
         f"tener mayor volatilidad y menor liquidez."
     )
-    # Intro + tabla centrados juntos bajo la cabecera, igual que en la
-    # Seccion 2 (la tabla se mide en seco para conocer su altura).
-    pdf.set_font("Helvetica", size=8, style="I")
-    small_cap_intro_h = pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L", dry_run=True, output="HEIGHT")
-    block_h = small_cap_intro_h + 3
-    if top_small:
-        block_h += measured_height(pdf, lambda p: render_summary_table(p, top_small, glossary_links, section_bg=SECTION3_BG))
-    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L")
@@ -1573,12 +1560,6 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
         "venta."
     )
-    # Intro + tabla centrados juntos bajo la cabecera, igual que en las
-    # secciones 2 y 3 (la tabla se mide en seco para conocer su altura).
-    pdf.set_font("Helvetica", size=8, style="I")
-    trump_intro_h = pdf.multi_cell(pdf.epw, 5, trump_intro, align="L", dry_run=True, output="HEIGHT")
-    block_h = trump_intro_h + 3 + measured_height(pdf, lambda p: render_summary_table(p, top_trump, glossary_links, section_bg=SECTION4_BG))
-    center_in_remaining_page(pdf, block_h)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(pdf.epw, 5, trump_intro, align="L")
