@@ -879,12 +879,12 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
-# Aire extra entre dos fichas de la misma hoja y margen extra sobre la
-# primera (ver render_detailed_descriptions). Con topes bajos: separan las
-# subsecciones con claridad pero sin abrir un vacio en medio de la hoja, y
-# la primera ficha queda arriba en vez de empujada hacia el centro.
-MAX_FICHA_GAP = 8
-MAX_FICHA_TOP_PAD = 6
+# Aire alrededor de las fichas de una misma hoja (ver
+# render_detailed_descriptions): se usa el MISMO valor para el margen sobre
+# la primera ficha y para el hueco entre fichas, de modo que la separacion
+# entre subsecciones coincide con la de arriba. Es un tope: si sobra menos
+# hoja, se reparte lo que haya.
+MAX_FICHA_SPACING = 10
 
 # Tope de la altura de fila de las tablas resumen: con pocas filas, repartir
 # TODO el alto de la hoja entre ellas daria filas desproporcionadas.
@@ -1164,14 +1164,10 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
     if current:
         groups.append(current)
 
-    # 3) Pintar cada grupo en su hoja, repartiendo el sobrante ENTRE las
-    #    fichas en vez de dejarlo todo como margen arriba y abajo: el
-    #    sobrante se divide en (numero de huecos + 1) partes iguales, cada
-    #    hueco entre fichas se lleva una, y la parte restante se reparte
-    #    mitad arriba / mitad abajo. Asi la primera ficha de la hoja sube,
-    #    las siguientes bajan y queda mas aire entre subsecciones, sin
-    #    dejar un vacio grande al final de la hoja. Con una sola ficha en
-    #    la hoja no hay huecos, asi que queda simplemente centrada.
+    # 3) Pintar cada grupo en su hoja separando las fichas entre si y de la
+    #    cabecera con el MISMO espacio (MAX_FICHA_SPACING como tope), para
+    #    que el hueco entre subsecciones coincida con el de arriba. Lo que
+    #    sobre de hoja se queda al pie.
     for group_i, group in enumerate(groups):
         if group_i > 0:
             pdf.add_page()
@@ -1179,16 +1175,13 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
         n_gaps = len(group) - 1
         available_h = (pdf.h - pdf.b_margin) - pdf.y
         leftover = max(0.0, available_h - group_h)
-        gap = min(leftover / (n_gaps + 1), MAX_FICHA_GAP) if n_gaps else 0.0
-        residual = leftover - gap * n_gaps
-        # El resto se va casi todo al pie de la hoja: sobre la primera ficha
-        # solo se deja un pelin de aire (MAX_FICHA_TOP_PAD) para que arranque
-        # arriba en vez de quedar empujada al centro.
-        if residual > 0:
-            pdf.ln(min(residual / 2, MAX_FICHA_TOP_PAD))
+        # Mismo espacio sobre la primera ficha que entre fichas (n_gaps + 1
+        # huecos en total); lo que sobre se queda al pie de la hoja.
+        spacing = min(leftover / (n_gaps + 1), MAX_FICHA_SPACING)
+        pdf.ln(spacing)
         for position, idx in enumerate(group):
             if position > 0:
-                pdf.ln(gap)
+                pdf.ln(spacing)
             o = entries[idx]
             _render_ficha(
                 pdf, pdf.l_margin, pdf.epw, idx + 1, o, glossary_links,
