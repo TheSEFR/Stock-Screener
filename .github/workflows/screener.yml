@@ -24,3 +24,10 @@ jobs:
           # igual que antes, sin el respaldo de estas fuentes adicionales.
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}
+      # Ademas de enviarse a Telegram, se guarda como artifact descargable
+      # desde la pestaña Actions (util para depurar sin depender de Telegram).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: informe-pdf
+          path: informe.pdf
+          retention-days: 14
