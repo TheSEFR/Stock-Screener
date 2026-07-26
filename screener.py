@@ -299,8 +299,15 @@ def is_small_cap(r: dict) -> bool:
 
 
 def format_market_cap(value: float | None) -> str:
+    """Escala compacta del market cap en la moneda nativa del ticker (ver
+    columna 'Pais'/glosario 'Cap.'). Necesita nivel T (billones/trillion):
+    acciones en wones surcoreanos, yenes, etc. usan cifras mucho mayores
+    que en USD/EUR para el mismo valor real, y sin este nivel el numero se
+    desbordaba la columna (ej. Samsung: "1638357.6B" en vez de "1638.4T")."""
     if not value:
         return "n/d"
+    if value >= 1_000_000_000_000:
+        return f"{value / 1_000_000_000_000:.1f}T"
     if value >= 1_000_000_000:
         return f"{value / 1_000_000_000:.1f}B"
     return f"{value / 1_000_000:.0f}M"
@@ -738,17 +745,17 @@ GLOSSARY = [
                      "de mercado."),
 ]
 
-# Paleta editorial (inspirada en la ficha DESIGN.md de WIRED, VoltAgent/
-# awesome-design-md): blanco y negro con un unico acento de color, en vez de
-# un banner solido distinto por seccion — asi el informe lee como un informe
-# impreso, no como una diapositiva de colores.
+# Paleta institucional (inspirada en el formato tipico de notas de analisis
+# de bancos de inversion: navy + sans-serif + tablas con cabecera solida,
+# en vez del estilo editorial/revista usado antes). No afiliado a JPMorgan
+# Chase & Co. ni a ningun banco concreto: es una interpretacion generica de
+# ese lenguaje visual, no una plantilla real de ninguna entidad.
 INK = (0, 0, 0)
-BODY_GRAY = (117, 117, 117)
-HAIRLINE = (224, 224, 224)
-CANVAS_SOFT = (245, 245, 245)
-ACCENT_LINK = (5, 125, 188)      # unico acento de color: enlaces/citas inline
-ACCENT_SMALLCAP = (140, 40, 40)  # kicker seccion 2 - aviso de riesgo
-ACCENT_TRUMP = (90, 90, 90)      # kicker seccion 3 - deliberadamente neutro
+BODY_GRAY = (90, 90, 90)
+HAIRLINE = (200, 205, 212)
+CANVAS_SOFT = (238, 241, 246)
+WHITE = (255, 255, 255)
+NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -771,21 +778,22 @@ class ReportPDF(FPDF):
         self.cell(0, 8, sanitize(f"Pagina {self.page_no()} de {{nb}}"), align="C")
 
 
-def section_header(pdf: FPDF, kicker: str, title: str, accent: tuple[int, int, int] = INK) -> None:
-    """Cabecera editorial: pequeño 'kicker' en mayusculas (color de acento
-    opcional) + titular serif + linea fina — en vez de un banner solido de
-    color, que es lo que hacia que el informe pareciera una diapositiva."""
+def section_header(pdf: FPDF, kicker: str, title: str) -> None:
+    """Cabecera institucional: kicker navy en mayusculas + titular sans-serif
+    en negrita + regla navy — mismo tratamiento en las 5 secciones (sin
+    codigo de color distinto por seccion, para que se lea como una nota de
+    analisis uniforme, no como una revista con secciones tematicas)."""
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9, style="B")
-    pdf.set_text_color(*accent)
+    pdf.set_text_color(*NAVY)
     pdf.cell(0, 6, sanitize(kicker.upper()), new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
-    pdf.set_font("Times", size=20)
+    pdf.set_font("Helvetica", size=19, style="B")
     pdf.set_x(pdf.l_margin)
     pdf.cell(0, 11, sanitize(title), new_x="LMARGIN", new_y="NEXT")
     y = pdf.get_y() + 1
-    pdf.set_draw_color(*INK)
-    pdf.set_line_width(0.5)
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.8)
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.set_font("Helvetica", size=10)
     pdf.ln(6)
@@ -800,15 +808,15 @@ SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R"
 
 
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
-    """Tabla con cabecera neutra (fondo gris muy claro, texto negro), sin
-    color de seccion: mismo tratamiento en las 3 tablas del informe, estilo
-    tabla de datos editorial (fondo canvas-soft, filas con linea fina)."""
+    """Tabla estilo nota de analisis: cabecera navy solida con texto blanco,
+    filas con zebra gris-azulado muy suave y lineas finas horizontales —
+    mismo tratamiento en las 3 tablas del informe."""
     from fpdf.fonts import FontFace
 
     pdf.set_fill_color(255, 255, 255)  # ver nota en section_header sobre fill_color heredado
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
-    headings_style = FontFace(emphasis="B", color=INK, fill_color=CANVAS_SOFT)
+    headings_style = FontFace(emphasis="B", color=WHITE, fill_color=NAVY)
     with pdf.table(
         col_widths=SUMMARY_WIDTHS,
         text_align=SUMMARY_ALIGN,
@@ -833,9 +841,9 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -
             row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
             row.cell(f"{o['score']}/{o['checks_applicable']}")
             row.cell(f"{o['quality_score']}/{o['quality_applicable']}")
-            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/a")
-            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/a")
-            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/a")
+            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/d")
+            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/d")
+            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/d")
             insider = o["insider_buying"]
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
             row.cell(o["recommendation"])
@@ -855,7 +863,7 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
         pdf.cell(0, 8, sanitize(header), new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", size=9)
-        pdf.set_text_color(*ACCENT_LINK)  # lineas con enlace al glosario
+        pdf.set_text_color(*NAVY)  # lineas con enlace al glosario
         pdf.set_x(pdf.l_margin)
         price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
         target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
@@ -924,12 +932,12 @@ def render_toc(pdf: FPDF, outline) -> None:
     # donde quedo el cursor tras la ULTIMA pagina del documento (normalmente
     # cerca del margen derecho) y sale cortado en la esquina.
     pdf.set_x(pdf.l_margin)
-    pdf.set_font("Times", size=24)
+    pdf.set_font("Helvetica", size=22, style="B")
     pdf.set_text_color(*INK)
     pdf.cell(0, 13, "Indice", new_x="LMARGIN", new_y="NEXT")
     y = pdf.get_y() + 1
-    pdf.set_draw_color(*INK)
-    pdf.set_line_width(0.5)
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.8)
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(8)
     pdf.set_font("Helvetica", size=12)
@@ -937,7 +945,7 @@ def render_toc(pdf: FPDF, outline) -> None:
         link = pdf.add_link(page=section.page_number)
         indent = "    " * section.level
         pdf.set_x(pdf.l_margin)
-        pdf.set_text_color(*ACCENT_LINK)
+        pdf.set_text_color(*NAVY)
         pdf.cell(
             0, 10,
             sanitize(f"{indent}{section.name}  ...  pag. {section.page_number}"),
@@ -947,7 +955,7 @@ def render_toc(pdf: FPDF, outline) -> None:
 
 
 def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
-    avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/a"
+    avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/d"
     coverage = Counter(region_for(r["country"]) for r in rows)
     coverage_txt = " - ".join(f"{region}: {n}" for region, n in coverage.most_common())
     top_coverage = Counter(region_for(o["country"]) for o in top)
@@ -962,48 +970,74 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: masthead editorial (blanco y negro, sin banner de color) ---
+    # --- Portada: cubierta institucional (navy + sans-serif), estilo nota de
+    # analisis de renta variable. NO es una plantilla real de JPMorgan ni de
+    # ningun otro banco: ver clausula de no afiliacion en el aviso legal.
     pdf.add_page()
+    pdf.set_fill_color(*NAVY)
+    pdf.rect(0, 0, pdf.w, 24, style="F")
+    pdf.set_text_color(*WHITE)
+    pdf.set_font("Helvetica", size=13, style="B")
+    pdf.set_xy(pdf.l_margin, 8)
+    pdf.cell(0, 8, "STOCK SCREENER", align="L")
+    pdf.set_font("Helvetica", size=10)
+    pdf.set_xy(-pdf.r_margin - 70, 8)
+    pdf.cell(70, 8, sanitize(f"{datetime.now():%d/%m/%Y  %H:%M}"), align="R")
+
+    pdf.set_y(50)
+    pdf.set_font("Helvetica", size=9, style="B")
+    pdf.set_text_color(*NAVY)
+    pdf.cell(0, 6, "RENTA VARIABLE - ANALISIS AUTOMATIZADO", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+    pdf.set_font("Helvetica", size=32, style="B")
     pdf.set_text_color(*INK)
-    pdf.set_y(45)
-    pdf.set_font("Helvetica", size=10, style="B")
-    pdf.cell(0, 6, "S T O C K   S C R E E N E R", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
-    pdf.set_font("Times", size=40)
-    pdf.cell(0, 18, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-    y = pdf.get_y()
-    pdf.set_draw_color(*INK)
-    pdf.set_line_width(0.6)
-    pdf.line(pdf.w / 2 - 25, y, pdf.w / 2 + 25, y)
-    pdf.ln(8)
-    pdf.set_font("Times", size=13, style="I")
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 8, sanitize(f"Generado el {datetime.now():%d/%m/%Y a las %H:%M}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*INK)
-    pdf.set_font("Helvetica", size=11)
-    pdf.cell(0, 8, f"Top {len(top)} de la watchlist analizada - P/E medio global: {avg_txt}", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-    pdf.set_font("Helvetica", size=9)
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 6, sanitize(f"Cobertura del analisis: {len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - {coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, sanitize(f"Mercados en este Top {len(top)}: {top_coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 14, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
+
+    # Bloque de cifras clave estilo "term sheet": etiqueta/valor con lineas finas.
+    stats = [
+        ("Fecha de generacion", sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}")),
+        ("Cobertura del analisis", sanitize(f"{len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - {coverage_txt}")),
+        (f"Mercados en el Top {len(top)}", sanitize(top_coverage_txt)),
+        ("P/E medio global", avg_txt),
+    ]
+    table_w = 200
+    label_w = 62
+    x0 = (pdf.w - table_w) / 2
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.3)
-    box_y1 = pdf.get_y()
-    pdf.set_font("Helvetica", size=8, style="I")
-    pdf.set_x(pdf.l_margin + 30)
+    y = pdf.get_y()
+    for label, value in stats:
+        pdf.set_xy(x0, y)
+        pdf.set_font("Helvetica", size=9, style="B")
+        pdf.set_text_color(*NAVY)
+        pdf.cell(label_w, 8, label)
+        pdf.set_font("Helvetica", size=9)
+        pdf.set_text_color(*INK)
+        pdf.cell(table_w - label_w, 8, value)
+        y += 8
+        pdf.line(x0, y, x0 + table_w, y)
+    pdf.ln(12)
+
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.5)
+    y = pdf.get_y()
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.ln(4)
+    pdf.set_font("Helvetica", size=7.5)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.set_x(pdf.l_margin)
     pdf.multi_cell(
-        pdf.epw - 60, 5,
-        "Informe automatico basado en datos publicos (Yahoo Finance). No "
-        "constituye asesoramiento financiero ni recomendacion de inversion "
-        "personalizada.",
-        align="C",
+        pdf.epw, 4,
+        "Informe automatico basado en datos publicos (Yahoo Finance, SEC EDGAR y, "
+        "opcionalmente, Financial Modeling Prep). No constituye asesoramiento "
+        "financiero ni recomendacion de inversion personalizada. El diseño de este "
+        "documento esta inspirado, con fines de legibilidad, en el formato habitual "
+        "de una nota de analisis de renta variable; no es una publicacion real de "
+        "J.P. Morgan Chase & Co. ni de ningun otro banco o entidad financiera "
+        "regulada, ni esta afiliado, respaldado o revisado por ellos.",
+        align="L",
     )
-    box_y2 = pdf.get_y()
-    pdf.line(pdf.l_margin + 30, box_y1 - 2, pdf.w - pdf.r_margin - 30, box_y1 - 2)
-    pdf.line(pdf.l_margin + 30, box_y2 + 2, pdf.w - pdf.r_margin - 30, box_y2 + 2)
     pdf.set_text_color(*INK)
 
     # --- Indice (pagina reservada, se rellena sola al final) ---
@@ -1029,7 +1063,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
-    section_header(pdf, "Seccion 2", f"Empresas de pequeña capitalizacion (Top {len(top_small)})", ACCENT_SMALLCAP)
+    section_header(pdf, "Seccion 2", f"Empresas de pequeña capitalizacion (Top {len(top_small)})")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1059,7 +1093,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # --- Seccion 3: Cesta tematica "Trump trade" ---
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
-    section_header(pdf, "Seccion 3", "Cesta tematica 'Trump trade'", ACCENT_TRUMP)
+    section_header(pdf, "Seccion 3", "Cesta tematica 'Trump trade'")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1100,7 +1134,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 7, sanitize(o["symbol"]), new_x="LMARGIN", new_y="NEXT")
         for item in news:
             pdf.set_font("Helvetica", size=9, style="B")
-            pdf.set_text_color(*ACCENT_LINK)
+            pdf.set_text_color(*NAVY)
             pdf.set_x(pdf.l_margin)
             pdf.multi_cell(
                 pdf.epw, 5, sanitize(f"- {item['title_es']}"),
@@ -1112,7 +1146,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
                 pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(pdf.epw, 5, sanitize(item["summary_es"]), align="L")
             pdf.set_font("Helvetica", size=8, style="I")
-            pdf.set_text_color(*ACCENT_LINK)
+            pdf.set_text_color(*NAVY)
             pdf.set_x(pdf.l_margin)
             pdf.cell(0, 5, sanitize(item["sentiment"]), link=glossary_links["Sentimiento noticia"], new_x="LMARGIN", new_y="NEXT")
             pdf.set_text_color(*INK)

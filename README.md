@@ -237,13 +237,14 @@ mercado — se rankea con los mismos criterios que el resto del informe.
 
 ## Diseño del PDF
 
-El informe usa un lenguaje visual editorial (blanco y negro, titulares en
-serif, líneas finas, un único color de acento para enlaces) en vez de
-banners de color sólido por sección, para que se lea como un informe
-impreso y no como una diapositiva. Inspirado en la ficha de diseño de WIRED
-del repositorio [VoltAgent/awesome-design-md](https://github.com/voltagent/awesome-design-md)
-(no afiliado a WIRED ni a Condé Nast, es una interpretación libre de su
-lenguaje visual público).
+El informe usa un lenguaje visual institucional (navy + sans-serif, tablas
+con cabecera solida, un unico color de acento en toda la maqueta) inspirado
+en el formato habitual de una nota de analisis de renta variable de banca
+de inversion, para que se lea como un documento serio y no como una
+diapositiva de colores. **No es una plantilla real de J.P. Morgan Chase &
+Co. ni de ningun otro banco o entidad financiera regulada**, ni esta
+afiliado, respaldado o revisado por ellos: es una interpretación genérica
+de ese lenguaje visual, sin logotipos ni marcas de terceros.
 
 ## Estructura del proyecto
 
