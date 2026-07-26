@@ -252,6 +252,12 @@ en la esquina superior de cada pagina. Los numeros (precios, P/E, %, etc.)
 se formatean con el convenio español/europeo (punto de millar, coma
 decimal: `1.234,56`), no con el convenio anglosajon por defecto de Python.
 
+Para distinguir de un vistazo en qué sección del informe se está, las
+páginas de "Empresas de pequeña capitalización" llevan un fondo cálido muy
+suave, y las de "Noticias recientes" y "Glosario de variables" un fondo frío
+igual de suave (el resto del informe queda en blanco); el texto negro sigue
+siendo perfectamente legible sobre ambos tintes.
+
 ## Estructura del proyecto
 
 ```

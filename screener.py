@@ -777,6 +777,11 @@ NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra
 # Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
 # navy + el naranja del logo + un par de tonos neutros de apoyo.
 PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150, 60), (150, 90, 90)]
+# Fondo de pagina completa para diferenciar secciones a simple vista (ver
+# ReportPDF via pdf.page_background, atributo nativo de fpdf2): muy suaves
+# para que el texto negro siga siendo perfectamente legible.
+SMALLCAP_BG = (255, 247, 237)  # calido, tono naranja del logo
+GLOSSARY_NEWS_BG = (236, 241, 247)  # frio, tono navy del logo
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -856,7 +861,7 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 # anterior. "Analistas" (antes "# Analistas") ya no necesita tanto sitio
 # al quitarle el "#" (que además se partia en su propia linea, con
 # "Analistas" debajo, pareciendo un corchete).
-SUMMARY_WIDTHS = (7, 16, 20, 19, 16, 20, 20, 12, 14, 12, 14, 11, 11, 13, 17, 24)
+SUMMARY_WIDTHS = (7, 16, 20, 19, 16, 20, 20, 11, 18, 11, 13, 11, 10, 13, 17, 24)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
@@ -1139,13 +1144,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf = ReportPDF(orientation="L", format="A4")
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(True, margin=15)
-    # Margenes iguales a ambos lados (antes ~10mm, los minimos de fpdf): las
-    # tablas ya se centran solas al ser l_margin == r_margin (fpdf2 escala
-    # col_widths para llenar el ancho impreso disponible, no son mm fijos),
-    # pero con 10mm el contenido llegaba casi al borde de la pagina A4
-    # apaisada. 18mm da un marco mas comodo sin estrechar tanto las columnas
-    # como para que las cabeceras cortas empiecen a partirse en varias lineas.
-    pdf.set_margins(left=18, top=10, right=18)
+    # Margenes: antes 18mm a ambos lados; el derecho se amplia a 24mm (el
+    # logo + "SEF-FINANCIAL" del header() quedaban justo al ras del borde
+    # del margen, sin aire). Las tablas siguen centrandose solas (fpdf2
+    # escala col_widths para llenar el ancho impreso disponible, no son mm
+    # fijos), simplemente con un poco menos de ancho total.
+    pdf.set_margins(left=18, top=10, right=24)
 
     # Enlaces internos del glosario (P/E, PEG, etc. -> definicion). fpdf
     # exige pagina asignada desde ya; se corrigen al final del todo.
@@ -1267,6 +1271,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top, glossary_links)
 
     # --- Seccion 3: Empresas de pequeña capitalizacion ---
+    # Fondo de pagina calido para diferenciarla a simple vista (se aplica a
+    # TODAS las paginas que cree add_page() de aqui en adelante, hasta que
+    # se cambie de nuevo mas abajo, incluidas paginas extra por overflow).
+    pdf.page_background = SMALLCAP_BG
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
@@ -1300,6 +1308,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
 
     # --- Seccion 4: Cesta tematica "Trump trade" ---
+    pdf.page_background = None  # vuelve a blanco (solo pequeña cap lleva tinte calido)
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
     section_header(pdf, "Seccion 4", "Cesta tematica 'Trump trade'")
@@ -1328,6 +1337,9 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
+    # Mismo tinte frio que el Glosario (seccion 6): ambas quedan activas
+    # hasta el final del documento, no hace falta resetear entre medias.
+    pdf.page_background = GLOSSARY_NEWS_BG
     pdf.add_page()
     pdf.start_section("Noticias recientes")
     section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
