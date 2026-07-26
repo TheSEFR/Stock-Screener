@@ -36,7 +36,7 @@ TOP_N = 10
 NEWS_PER_TICKER = 2
 DESCRIPTION_MAX_CHARS = 500
 SMALL_CAP_MAX = 2_000_000_000  # USD; por debajo se trata como "pequeña capitalizacion"
-SMALL_CAP_TOP_N = 5
+SMALL_CAP_TOP_N = 10
 
 # Cesta tematica "Trump trade": acciones que la prensa financiera (Goldman
 # Sachs, Kiplinger, Bloomberg, Investing.com...) menciona repetidamente como
@@ -780,8 +780,10 @@ PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150,
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
 # ReportPDF via pdf.page_background, atributo nativo de fpdf2): muy suaves
 # para que el texto negro siga siendo perfectamente legible.
-SMALLCAP_BG = (252, 220, 176)  # calido, tono naranja del logo (mas saturado)
-GLOSSARY_NEWS_BG = (194, 213, 232)  # frio, tono navy del logo (mas saturado)
+BLUE_LIGHT_BG = (194, 213, 232)  # Panorama de mercado, Noticias y Glosario
+RED_DARK_BG = (222, 176, 176)  # Seccion 2: Tabla resumen (Top 10)
+RED_MID_BG = (236, 202, 202)  # Seccion 3: Empresas de pequeña capitalizacion
+RED_SOFT_BG = (247, 226, 226)  # Seccion 4: Cesta tematica "Trump trade"
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -1098,11 +1100,26 @@ def render_toc(pdf: FPDF, outline) -> None:
     pdf.set_font("Helvetica", size=22, style="B")
     pdf.set_text_color(*INK)
     pdf.cell(0, 13, "Indice", new_x="LMARGIN", new_y="NEXT")
-    y = pdf.get_y() + 1
+    y_line = pdf.get_y() + 1
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.3)
-    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
-    pdf.ln(8)
+    pdf.line(pdf.l_margin, y_line, pdf.w - pdf.r_margin, y_line)
+    y_start = y_line + 8
+
+    # Dos columnas en vez de una lista vertical unica: con un subpunto por
+    # cada accion (top 10 + pequeña cap top 10 + cesta tematica) el indice
+    # no cabe en una pagina a una sola columna. La 4a seccion principal
+    # ("Cesta tematica" en adelante) arranca la segunda columna: reparte el
+    # contenido de forma razonablemente equilibrada (seccion 2 y 3, con sus
+    # 10 subpuntos cada una, pesan mucho mas que 4+5+6 juntas).
+    col_gap = 10
+    col_width = (pdf.epw - col_gap) / 2
+    col_x = [pdf.l_margin, pdf.l_margin + col_width + col_gap]
+    col_y = [y_start, y_start]
+    col = 0
+    SWITCH_AT_MAIN = 4
+    max_y = pdf.h - pdf.b_margin
+
     # Numeracion jerarquica: un punto principal (1, 2, 3...) por cada
     # seccion/tabla, y un subpunto (2.1, 2.2...) por cada accion dentro de
     # ella -- en vez de una lista plana con todo al mismo nivel.
@@ -1113,24 +1130,35 @@ def render_toc(pdf: FPDF, outline) -> None:
         if section.level == 0:
             main_i += 1
             sub_i = 0
+            if main_i == SWITCH_AT_MAIN and col == 0:
+                col = 1
             label = f"{main_i}."
-            pdf.set_font("Helvetica", size=12)
+            font_size = 12
             row_h = 9
             indent = ""
         else:
             sub_i += 1
             label = f"{main_i}.{sub_i}"
-            pdf.set_font("Helvetica", size=10)
+            font_size = 10
             row_h = 6.5
             indent = "    "
-        pdf.set_x(pdf.l_margin)
+        if col_y[col] + row_h > max_y:
+            # Seguridad: si en algun caso extremo (watchlist mucho mayor)
+            # el indice no cupiese en 2 columnas / 1 pagina, sigue en una
+            # pagina nueva en vez de desbordar el pie de pagina.
+            pdf.add_page()
+            col_y = [pdf.t_margin, pdf.t_margin]
+        pdf.set_xy(col_x[col], col_y[col])
+        pdf.set_font("Helvetica", size=font_size)
         pdf.set_text_color(*NAVY)
         pdf.cell(
-            0, row_h,
+            col_width, row_h,
             sanitize(f"{indent}{label} {section.name}  ...  pag. {section.page_number}"),
-            new_x="LMARGIN", new_y="NEXT", link=link,
+            link=link,
         )
+        col_y[col] += row_h
     pdf.set_text_color(*INK)
+    pdf.set_y(max(col_y))
 
 
 def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
@@ -1155,43 +1183,69 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: composicion centrada (logo, titular y subtitulo), con
-    # la firma en grande alineada a la derecha al pie de pagina. NO es una
-    # plantilla real de JPMorgan, ING ni de ningun otro banco: ver clausula
-    # de no afiliacion en la pagina siguiente. Logo grande solo aqui
-    # (paginas interiores llevan la version pequeña via header()).
+    # --- Portada: un unico bloque (logo, titular y firma) centrado
+    # verticalmente en la pagina, en vez de logo/titular arriba y firma
+    # pegada abajo con un hueco vacio en medio. NO es una plantilla real de
+    # JPMorgan, ING ni de ningun otro banco: ver clausula de no afiliacion
+    # en la pagina siguiente. Logo grande solo aqui (paginas interiores
+    # llevan la version pequeña via header()).
     pdf.add_page()
-    if os.path.exists(SEF_LOGO_PATH):
-        logo_big = 28
-        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_big) / 2, y=18, w=logo_big, h=logo_big)
+    logo_size = 28
+    kicker_h = 6
+    title_line_h = 14
+    brand_h = 10
+    credit_h = 6
+    gap_logo_kicker = 6
+    gap_kicker_title = 3
+    gap_title_brand = 14
 
-    pdf.set_y(56)
+    title_text = "Informe de acciones recomendadas"
+    title_size = 30
+    pdf.set_font("Helvetica", size=title_size, style="B")
+    while pdf.get_string_width(title_text) > pdf.epw and title_size > 20:
+        title_size -= 1
+        pdf.set_font("Helvetica", size=title_size, style="B")
+    title_lines = 2 if pdf.get_string_width(title_text) > pdf.epw else 1
+
+    block_height = (
+        logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
+        + title_line_h * title_lines + gap_title_brand + brand_h + credit_h
+    )
+    y = (pdf.h - block_height) / 2
+
+    if os.path.exists(SEF_LOGO_PATH):
+        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_size) / 2, y=y, w=logo_size, h=logo_size)
+    y += logo_size + gap_logo_kicker
+
+    pdf.set_y(y)
     pdf.set_font("Helvetica", size=9, style="B")
     pdf.set_text_color(*NAVY)
-    pdf.cell(0, 6, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-    pdf.set_font("Helvetica", size=32, style="B")
-    pdf.cell(0, 14, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=24, style="B")
-    pdf.cell(0, 12, "para tu watchlist", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*INK)
+    pdf.cell(0, kicker_h, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    y += kicker_h + gap_kicker_title
 
-    # Firma grande, alineada a la derecha, al pie de la portada.
-    pdf.set_y(-52)
+    pdf.set_y(y)
+    pdf.set_font("Helvetica", size=title_size, style="B")
+    pdf.set_text_color(*INK)
+    if title_lines == 2:
+        pdf.cell(0, title_line_h, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, title_line_h, "recomendadas", align="C", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, title_line_h, sanitize(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
+    y += title_line_h * title_lines + gap_title_brand
+
+    # Firma compacta, alineada a la derecha, dentro del mismo bloque
+    # centrado (antes iba grande y pegada al pie de pagina, con un hueco
+    # vacio en el medio de la portada).
+    pdf.set_y(y)
     pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=9)
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(pdf.epw, 6, "Informe realizado por", align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=28, style="B")
+    pdf.set_font("Helvetica", size=16, style="B")
     pdf.set_text_color(*NAVY)
-    pdf.cell(pdf.epw, 13, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(pdf.epw, brand_h, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9)
     pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(pdf.epw, 6, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=8, style="I")
-    pdf.cell(pdf.epw, 5, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
+    credit_line = f"Realizado por SEF-Financial - {datetime.now():%d/%m/%Y a las %H:%M} - Generado por IA"
+    pdf.cell(pdf.epw, credit_h, sanitize(credit_line), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
 
     # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
@@ -1209,11 +1263,19 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # insercion ni reordenamiento, y su pie sale bien a la primera.
     pdf.add_page()
     toc_pages = estimate_toc_pages(len(top), len(top_small), len(top_trump))
+    # El tinte de "Panorama de mercado" se activa AQUI (tras crear la pagina
+    # del indice, pero antes de insert_toc_placeholder) para que la pagina
+    # que ese metodo crea internamente para "saltar" el indice (ver
+    # FPDF._perform_page_break, llamado 'toc_pages' veces en bucle) ya nazca
+    # con el fondo azul puesto: esa es la pagina que reutiliza la Seccion 1
+    # sin necesitar su propio add_page() (ver nota mas abajo).
+    pdf.page_background = BLUE_LIGHT_BG
     pdf.insert_toc_placeholder(render_toc, pages=toc_pages)
 
     # --- Seccion 1: Panorama de mercado (graficas circulares + aviso legal) ---
     # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
-    # nueva; añadir otra generaba una pagina en blanco de mas en cada informe.
+    # nueva (con el fondo azul ya aplicado, ver arriba); añadir otra
+    # generaba una pagina en blanco de mas en cada informe.
     pdf.start_section("Panorama de mercado")
     section_header(pdf, "Seccion 1", "Panorama de mercado")
     pdf.set_font("Helvetica", size=9, style="I")
@@ -1257,6 +1319,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
 
     # --- Seccion 2: Tabla resumen ---
+    pdf.page_background = RED_DARK_BG
     pdf.add_page()
     pdf.start_section("Tabla resumen (Top 10)")
     section_header(pdf, "Seccion 2", "Tabla resumen (Top 10)")
@@ -1271,10 +1334,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top, glossary_links)
 
     # --- Seccion 3: Empresas de pequeña capitalizacion ---
-    # Fondo de pagina calido para diferenciarla a simple vista (se aplica a
+    # Fondo de pagina propio para diferenciarla a simple vista (se aplica a
     # TODAS las paginas que cree add_page() de aqui en adelante, hasta que
     # se cambie de nuevo mas abajo, incluidas paginas extra por overflow).
-    pdf.page_background = SMALLCAP_BG
+    pdf.page_background = RED_MID_BG
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
@@ -1308,7 +1371,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
 
     # --- Seccion 4: Cesta tematica "Trump trade" ---
-    pdf.page_background = None  # vuelve a blanco (solo pequeña cap lleva tinte calido)
+    pdf.page_background = RED_SOFT_BG
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
     section_header(pdf, "Seccion 4", "Cesta tematica 'Trump trade'")
@@ -1337,9 +1400,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
-    # Mismo tinte frio que el Glosario (seccion 6): ambas quedan activas
-    # hasta el final del documento, no hace falta resetear entre medias.
-    pdf.page_background = GLOSSARY_NEWS_BG
+    # Mismo tinte (azul claro) que el Panorama de mercado y el Glosario
+    # (seccion 6): ambas quedan activas hasta el final del documento, no
+    # hace falta resetear entre medias.
+    pdf.page_background = BLUE_LIGHT_BG
     pdf.add_page()
     pdf.start_section("Noticias recientes")
     section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
