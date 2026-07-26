@@ -771,7 +771,7 @@ GLOSSARY = [
 INK = (0, 0, 0)
 BODY_GRAY = (90, 90, 90)
 HAIRLINE = (200, 205, 212)
-CANVAS_SOFT = (240, 220, 220)  # cabecera/zebra de tabla en tono rojizo, a juego con el fondo de seccion
+CANVAS_SOFT = (222, 232, 240)  # cabecera/zebra de tabla en tono azulado, a juego con el fondo de seccion
 WHITE = (255, 255, 255)
 NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
 # Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
@@ -779,24 +779,24 @@ NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra
 PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150, 60), (150, 90, 90)]
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
 # ReportPDF via pdf.page_background, atributo nativo de fpdf2): escala de
-# rojo estrictamente decreciente, interpolando en linea recta entre un rojo
-# chillon (portada) y un rojo suave pero NO blanco (seccion 5/6) en pasos
-# iguales, en vez de tonos elegidos a mano uno por uno. Aun asi lo bastante
-# suaves en el extremo final para que el texto negro siga siendo legible.
-def _red_shade(t: float) -> tuple[int, int, int]:
-    r0, g0, b0 = 196, 60, 60  # t=0: rojo chillon (portada)
-    r1, g1, b1 = 238, 200, 200  # t=1: el mas suave (Noticias/Glosario), pero no blanco
+# azul estrictamente decreciente (a juego con el navy, el color de acento
+# del resto del informe), interpolando en linea recta entre un azul intenso
+# (portada) y un azul muy suave (seccion 5/6) en pasos iguales, en vez de
+# tonos elegidos a mano uno por uno.
+def _section_shade(t: float) -> tuple[int, int, int]:
+    r0, g0, b0 = 70, 120, 175  # t=0: azul intenso (portada)
+    r1, g1, b1 = 232, 240, 247  # t=1: el mas suave (Noticias/Glosario)
     return (round(r0 + (r1 - r0) * t), round(g0 + (g1 - g0) * t), round(b0 + (b1 - b0) * t))
 
 
-_RED_SCALE = [_red_shade(i / 6) for i in range(7)]
-PORTADA_BG = _RED_SCALE[0]  # Portada
-INDICE_BG = _RED_SCALE[1]  # Indice
-RED_FULL_BG = _RED_SCALE[2]  # Seccion 1: Panorama de mercado
-RED_DARK_BG = _RED_SCALE[3]  # Seccion 2: Tabla 10 principales acciones
-RED_MID_BG = _RED_SCALE[4]  # Seccion 3: Empresas de pequeña capitalizacion
-RED_SOFT_BG = _RED_SCALE[5]  # Seccion 4: Cesta tematica "Trump trade"
-RED_SOFTEST_BG = _RED_SCALE[6]  # Seccion 5 y 6: Noticias / Glosario
+_SECTION_SCALE = [_section_shade(i / 6) for i in range(7)]
+PORTADA_BG = _SECTION_SCALE[0]  # Portada
+INDICE_BG = _SECTION_SCALE[1]  # Indice
+SECTION1_BG = _SECTION_SCALE[2]  # Seccion 1: Panorama de mercado
+SECTION2_BG = _SECTION_SCALE[3]  # Seccion 2: Tabla 10 principales acciones
+SECTION3_BG = _SECTION_SCALE[4]  # Seccion 3: Empresas de pequeña capitalizacion
+SECTION4_BG = _SECTION_SCALE[5]  # Seccion 4: Cesta tematica "Trump trade"
+SECTION56_BG = _SECTION_SCALE[6]  # Seccion 5 y 6: Noticias / Glosario
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -1260,7 +1260,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.cell(pdf.epw, brand_h, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
     # Firma en columna (una linea por dato) en vez de todo en una fila
     # separado por guiones. BODY_GRAY (pensado para texto sobre fondo claro)
-    # no contrasta lo suficiente sobre el rojo chillon de la portada, asi
+    # no contrasta lo suficiente sobre el azul intenso de la portada, asi
     # que aqui se usa INK en su lugar.
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9)
@@ -1295,7 +1295,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # FPDF._perform_page_break, llamado 'toc_pages' veces en bucle) ya nazca
     # con el fondo puesto: esa es la pagina que reutiliza la Seccion 1 sin
     # necesitar su propio add_page() (ver nota mas abajo).
-    pdf.page_background = RED_FULL_BG
+    pdf.page_background = SECTION1_BG
     pdf.insert_toc_placeholder(render_toc, pages=toc_pages)
 
     # --- Seccion 1: Panorama de mercado (graficas circulares + aviso legal) ---
@@ -1345,7 +1345,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
 
     # --- Seccion 2: Tabla 10 principales acciones ---
-    pdf.page_background = RED_DARK_BG
+    pdf.page_background = SECTION2_BG
     pdf.add_page()
     pdf.start_section("Tabla 10 principales acciones")
     section_header(pdf, "Seccion 2", "Tabla 10 principales acciones")
@@ -1363,7 +1363,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # Fondo de pagina propio para diferenciarla a simple vista (se aplica a
     # TODAS las paginas que cree add_page() de aqui en adelante, hasta que
     # se cambie de nuevo mas abajo, incluidas paginas extra por overflow).
-    pdf.page_background = RED_MID_BG
+    pdf.page_background = SECTION3_BG
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
@@ -1397,7 +1397,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
 
     # --- Seccion 4: Cesta tematica "Trump trade" ---
-    pdf.page_background = RED_SOFT_BG
+    pdf.page_background = SECTION4_BG
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
     section_header(pdf, "Seccion 4", "Cesta tematica 'Trump trade'")
@@ -1426,11 +1426,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
-    # El rojo mas suave de todos, igual que el Glosario (seccion 6): el
-    # gradiente de rojo de las secciones anteriores termina aqui. Ambas
+    # El azul mas suave de todos, igual que el Glosario (seccion 6): el
+    # gradiente de azul de las secciones anteriores termina aqui. Ambas
     # quedan activas hasta el final del documento, no hace falta resetear
     # entre medias.
-    pdf.page_background = RED_SOFTEST_BG
+    pdf.page_background = SECTION56_BG
     pdf.add_page()
     pdf.start_section("Noticias recientes")
     section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
