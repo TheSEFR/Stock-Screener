@@ -890,6 +890,9 @@ MAX_FICHA_TOP_PAD = 6
 # que el del texto (20mm), asi las tablas salen mas anchas y sus columnas
 # van mas holgadas. Ver render_summary_table.
 TABLE_SIDE_MARGIN = 10
+# Tope de la altura de fila de las tablas resumen: con pocas filas, repartir
+# TODO el alto de la hoja entre ellas daria filas desproporcionadas.
+MAX_TABLE_ROW_HEIGHT = 14
 
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
@@ -899,15 +902,16 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
 # fpdf2 los reescala proporcionalmente para llenar el ancho imprimible, asi
 # que lo que importa es la proporcion entre ellos, no el valor absoluto.
-# Motivo del recalculo: con los anchos anteriores "Communication Services"
+# Motivo del recalculo: con los anchos originales "Communication Services"
 # se partia A MITAD DE PALABRA ("Communicatio" / "n Services") porque ni
 # "Communication" (19,6mm) entraba en los 18,9mm utiles de la columna
-# Sector, y "COMPRA FUERTE" (24,5mm) no cabia en una linea, lo que hacia
-# que TODAS las filas ocuparan dos lineas. Ahora Sector admite
-# "Communication" y Recomendacion "COMPRA FUERTE" de una sola linea; se
-# recorta a cambio el sobrante de las columnas estrechas (#, P/E, PEG,
-# Score), que iban muy holgadas respecto a su contenido.
-SUMMARY_WIDTHS = (5, 16.5, 17, 17, 15.5, 19.5, 22.5, 13.5, 15, 10.5, 12.5, 8, 9, 13, 17.5, 27.5)
+# Sector. Ahora TODA celda cabe en una sola linea -- incluidas
+# "Communication Services" (31,2mm) en Sector y "COMPRA FUERTE" (24,5mm) en
+# Recomendacion -- de modo que todas las filas miden lo mismo y su altura
+# se puede fijar de golpe (ver line_height en render_summary_table). El
+# ancho extra de Sector sale de Precio y P.Objetivo, que iban holgadas
+# respecto al numero mas largo que muestran ("249.500,00", 14,1mm).
+SUMMARY_WIDTHS = (5, 16.5, 15, 15, 15.5, 19.5, 29.5, 13.5, 15, 10.5, 12.5, 8, 9, 13, 17.5, 27.5)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
@@ -979,7 +983,12 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
     estrecho que el del texto) para que salga mas ancha y sus columnas vayan
     mas holgadas; los margenes se restauran al terminar. fpdf2 reparte
     col_widths sobre el ancho imprimible, asi que basta con estrechar los
-    margenes antes de abrir la tabla."""
+    margenes antes de abrir la tabla.
+
+    La altura de fila (line_height) se estira para que la tabla ocupe todo
+    el alto que queda de hoja en vez de quedarse como una franja fina
+    arriba. Como ninguna celda envuelve a dos lineas (ver SUMMARY_WIDTHS),
+    todas las filas miden exactamente line_height y el reparto es exacto."""
     from fpdf.fonts import FontFace
 
     prev_l, prev_r = pdf.l_margin, pdf.r_margin
@@ -993,10 +1002,19 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
     headings_style = FontFace(emphasis="B", color=INK, fill_color=table_stripe_bg)
+
+    # +1 por la fila de cabecera. Se descuentan 2mm de aire para no rozar el
+    # limite del salto de pagina automatico, y se acota entre la altura
+    # normal de fpdf2 (2 * font_size) y MAX_TABLE_ROW_HEIGHT.
+    n_rows = len(entries) + 1
+    available_h = (pdf.h - pdf.b_margin) - pdf.get_y() - 2
+    line_height = max(2 * pdf.font_size, min(available_h / n_rows, MAX_TABLE_ROW_HEIGHT))
+
     with pdf.table(
         col_widths=SUMMARY_WIDTHS,
         text_align=SUMMARY_ALIGN,
         headings_style=headings_style,
+        line_height=line_height,
         cell_fill_color=table_stripe_bg,
         cell_fill_mode="EVEN_ROWS",
         borders_layout="HORIZONTAL_LINES",
