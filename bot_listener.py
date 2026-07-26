@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 from screener import generate_and_send_report
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+# "".join(...split()) quita cualquier espacio o salto de linea que se haya
+# colado al copiar el secret (frecuente al pegar desde el movil): un token
+# de Telegram nunca lleva espacios de verdad.
+TOKEN = "".join(os.environ["TELEGRAM_BOT_TOKEN"].split())
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 
@@ -32,30 +35,9 @@ def answer_callback(callback_id: str) -> None:
 
 
 def main() -> None:
-    # Diagnostico temporal: describe el token SIN revelarlo, para detectar
-    # espacios/saltos de linea colados al pegarlo como secret en GitHub.
-    print(
-        "TELEGRAM_BOT_TOKEN diagnostico: "
-        f"longitud={len(TOKEN)}, "
-        f"empieza_con_espacio={TOKEN != TOKEN.lstrip()}, "
-        f"termina_con_espacio={TOKEN != TOKEN.rstrip()}, "
-        f"contiene_espacio_interno={' ' in TOKEN.strip()}, "
-        f"contiene_salto_de_linea={chr(10) in TOKEN or chr(13) in TOKEN}, "
-        f"primeros_3={TOKEN[:3]!r}, ultimos_3={TOKEN[-3:]!r}"
-    )
-
     ensure_bot_command()
 
-    # Diagnostico temporal: si hay un webhook configurado en este bot,
-    # getUpdates siempre devuelve vacio (Telegram no permite mezclar
-    # webhook + polling). Tambien mostramos la respuesta cruda por si hay
-    # un error (token invalido, etc.) que "result" oculta.
-    webhook_info = requests.get(f"{API}/getWebhookInfo", timeout=15).json()
-    print(f"getWebhookInfo: {webhook_info}")
-
-    raw = requests.get(f"{API}/getUpdates", timeout=15).json()
-    print(f"getUpdates crudo: {raw}")
-    updates = raw.get("result", [])
+    updates = requests.get(f"{API}/getUpdates", timeout=15).json().get("result", [])
     if not updates:
         print("Sin mensajes nuevos.")
         return

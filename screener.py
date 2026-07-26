@@ -1156,8 +1156,11 @@ GENERATE_NOW_BUTTON = {
 
 
 def send_telegram_document(path: str, caption: str) -> None:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    # .split()/"".join() quita cualquier espacio o salto de linea que se
+    # haya colado al copiar el secret (frecuente al pegar desde el movil):
+    # un token de Telegram nunca lleva espacios de verdad.
+    token = "".join(os.environ["TELEGRAM_BOT_TOKEN"].split())
+    chat_id = os.environ["TELEGRAM_CHAT_ID"].strip()
     url = f"https://api.telegram.org/bot{token}/sendDocument"
     with open(path, "rb") as f:
         resp = requests.post(
