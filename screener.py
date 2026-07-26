@@ -801,7 +801,7 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
 SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-SUMMARY_WIDTHS = (7, 16, 15, 15, 13, 20, 30, 14, 14, 12, 14, 11, 11, 13, 17, 24)
+SUMMARY_WIDTHS = (7, 16, 15, 18, 16, 20, 24, 14, 14, 12, 14, 11, 11, 13, 17, 24)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
@@ -965,6 +965,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf = ReportPDF(orientation="L", format="A4")
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(True, margin=15)
+    # Margenes iguales a ambos lados (antes ~10mm, los minimos de fpdf): las
+    # tablas ya se centran solas al ser l_margin == r_margin (fpdf2 escala
+    # col_widths para llenar el ancho impreso disponible, no son mm fijos),
+    # pero con 10mm el contenido llegaba casi al borde de la pagina A4
+    # apaisada. 18mm da un marco mas comodo sin estrechar tanto las columnas
+    # como para que las cabeceras cortas empiecen a partirse en varias lineas.
+    pdf.set_margins(left=18, top=10, right=18)
 
     # Enlaces internos del glosario (P/E, PEG, etc. -> definicion). fpdf
     # exige pagina asignada desde ya; se corrigen al final del todo.
