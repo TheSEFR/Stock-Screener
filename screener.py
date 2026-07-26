@@ -771,7 +771,8 @@ GLOSSARY = [
 INK = (0, 0, 0)
 BODY_GRAY = (90, 90, 90)
 HAIRLINE = (200, 205, 212)
-CANVAS_SOFT = (222, 232, 240)  # cabecera/zebra de tabla en tono azulado, a juego con el fondo de seccion
+CANVAS_SOFT = (222, 232, 240)  # cabecera y franja "mas azul" de la zebra de tabla
+TABLE_BASE_BG = (240, 245, 249)  # franja "menos azul" de la zebra de tabla (nunca blanco puro)
 WHITE = (255, 255, 255)
 NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
 # Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
@@ -948,11 +949,11 @@ def ensure_table_fits(pdf: FPDF, n_rows: int) -> None:
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.
-    Filas con zebra gris-azulado suave y lineas finas horizontales —
-    mismo tratamiento en las 3 tablas del informe."""
+    Zebra en dos tonos de azul (nunca blanco puro) y lineas finas
+    horizontales — mismo tratamiento en las 3 tablas del informe."""
     from fpdf.fonts import FontFace
 
-    pdf.set_fill_color(255, 255, 255)  # ver nota en section_header sobre fill_color heredado
+    pdf.set_fill_color(*TABLE_BASE_BG)  # ver nota en section_header sobre fill_color heredado
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
     headings_style = FontFace(emphasis="B", color=INK, fill_color=CANVAS_SOFT)
@@ -1188,23 +1189,22 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf = ReportPDF(orientation="L", format="A4")
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(True, margin=15)
-    # Margenes: antes 18mm a ambos lados; el derecho se amplia a 24mm (el
-    # logo + "SEF-FINANCIAL" del header() quedaban justo al ras del borde
-    # del margen, sin aire). Las tablas siguen centrandose solas (fpdf2
-    # escala col_widths para llenar el ancho impreso disponible, no son mm
-    # fijos), simplemente con un poco menos de ancho total.
-    pdf.set_margins(left=18, top=10, right=24)
+    # Margenes iguales a ambos lados. Las tablas siguen centrandose solas
+    # (fpdf2 escala col_widths para llenar el ancho impreso disponible, no
+    # son mm fijos).
+    pdf.set_margins(left=20, top=10, right=20)
 
     # Enlaces internos del glosario (P/E, PEG, etc. -> definicion). fpdf
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: un unico bloque (logo, titular y firma) centrado
-    # verticalmente en la pagina, en vez de logo/titular arriba y firma
-    # pegada abajo con un hueco vacio en medio. NO es una plantilla real de
-    # JPMorgan, ING ni de ningun otro banco: ver clausula de no afiliacion
-    # en la pagina siguiente. Logo grande solo aqui (paginas interiores
-    # llevan la version pequeña via header()).
+    # --- Portada: logo/titular centrados en la mitad superior de la
+    # pagina (bajados respecto al techo, no pegados arriba del todo), y la
+    # firma anclada abajo a la derecha, separada del bloque de arriba en
+    # vez de ir las dos cosas pegadas en un unico bloque central. NO es una
+    # plantilla real de JPMorgan, ING ni de ningun otro banco: ver clausula
+    # de no afiliacion en la pagina siguiente. Logo grande solo aqui
+    # (paginas interiores llevan la version pequeña via header()).
     pdf.page_background = PORTADA_BG
     pdf.add_page()
     logo_size = 28
@@ -1214,7 +1214,6 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     credit_h = 5  # altura de cada linea de la firma, en columna (3 lineas)
     gap_logo_kicker = 6
     gap_kicker_title = 3
-    gap_title_brand = 14
 
     title_text = "Informe de acciones recomendadas"
     title_size = 30
@@ -1224,10 +1223,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.set_font("Helvetica", size=title_size, style="B")
     title_lines = 2 if pdf.get_string_width(title_text) > pdf.epw else 1
 
-    block_height = (
-        logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
-        + title_line_h * title_lines + gap_title_brand + brand_h + credit_h * 3
-    )
+    block_height = logo_size + gap_logo_kicker + kicker_h + gap_kicker_title + title_line_h * title_lines
+    # Centrado sobre el alto completo de la pagina: al no incluir ya la
+    # firma en este calculo (va aparte, anclada abajo mas adelante), este
+    # bloque mas corto queda centrado mas abajo que antes.
     y = (pdf.h - block_height) / 2
 
     if os.path.exists(SEF_LOGO_PATH):
@@ -1248,12 +1247,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, title_line_h, "recomendadas", align="C", new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.cell(0, title_line_h, sanitize(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
-    y += title_line_h * title_lines + gap_title_brand
 
-    # Firma compacta, alineada a la derecha, dentro del mismo bloque
-    # centrado (antes iba grande y pegada al pie de pagina, con un hueco
-    # vacio en el medio de la portada).
-    pdf.set_y(y)
+    # Firma compacta, alineada a la derecha y anclada abajo (no pegada al
+    # bloque de arriba, como antes).
+    pdf.set_y(-55)
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=16, style="B")
     pdf.set_text_color(*NAVY)
