@@ -34,7 +34,16 @@ def answer_callback(callback_id: str) -> None:
 def main() -> None:
     ensure_bot_command()
 
-    updates = requests.get(f"{API}/getUpdates", timeout=15).json().get("result", [])
+    # Diagnostico temporal: si hay un webhook configurado en este bot,
+    # getUpdates siempre devuelve vacio (Telegram no permite mezclar
+    # webhook + polling). Tambien mostramos la respuesta cruda por si hay
+    # un error (token invalido, etc.) que "result" oculta.
+    webhook_info = requests.get(f"{API}/getWebhookInfo", timeout=15).json()
+    print(f"getWebhookInfo: {webhook_info}")
+
+    raw = requests.get(f"{API}/getUpdates", timeout=15).json()
+    print(f"getUpdates crudo: {raw}")
+    updates = raw.get("result", [])
     if not updates:
         print("Sin mensajes nuevos.")
         return
