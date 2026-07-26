@@ -1186,6 +1186,8 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_font("Helvetica", size=9)
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(pdf.epw, 6, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.cell(pdf.epw, 5, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
 
     # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
@@ -1238,13 +1240,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_x(pdf.l_margin)
     pdf.multi_cell(
         pdf.epw, 4,
-        "Informe automatico basado en datos publicos (Yahoo Finance, SEC EDGAR y, "
-        "opcionalmente, Financial Modeling Prep). No constituye asesoramiento "
-        "financiero ni recomendacion de inversion personalizada. El diseño de este "
-        "documento esta inspirado, con fines de legibilidad, en el formato habitual "
-        "de una carta/nota de analisis financiero; no es una publicacion real de "
-        "J.P. Morgan Chase & Co., ING, Value School ni de ninguna otra entidad "
-        "financiera regulada, ni esta afiliado, respaldado o revisado por ellas.",
+        "Informe generado por IA de forma automatica, basado en datos publicos "
+        "(Yahoo Finance, SEC EDGAR y, opcionalmente, Financial Modeling Prep). No "
+        "constituye asesoramiento financiero ni recomendacion de inversion "
+        "personalizada. El diseño de este documento esta inspirado, con fines de "
+        "legibilidad, en el formato habitual de una carta/nota de analisis "
+        "financiero; no es una publicacion real de J.P. Morgan Chase & Co., ING, "
+        "Value School ni de ninguna otra entidad financiera regulada, ni esta "
+        "afiliado, respaldado o revisado por ellas.",
         align="L",
     )
     pdf.set_text_color(*INK)
