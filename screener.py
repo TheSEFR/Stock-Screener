@@ -780,13 +780,14 @@ PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150,
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
 # ReportPDF via pdf.page_background, atributo nativo de fpdf2): un gradiente
 # de rojo que va de mas saturado (Panorama, la primera seccion) a mas suave
-# (Noticias/Glosario, al final) - muy suaves para que el texto negro siga
-# siendo perfectamente legible.
+# (Cesta tematica), con Noticias/Glosario al final en un tono un poco mas
+# suave que el de la Seccion 2 (Tabla resumen) - muy suaves para que el
+# texto negro siga siendo perfectamente legible.
 RED_FULL_BG = (208, 140, 140)  # Seccion 1: Panorama de mercado
 RED_DARK_BG = (222, 176, 176)  # Seccion 2: Tabla resumen (Top 10)
 RED_MID_BG = (236, 202, 202)  # Seccion 3: Empresas de pequeña capitalizacion
 RED_SOFT_BG = (247, 226, 226)  # Seccion 4: Cesta tematica "Trump trade"
-RED_SOFTEST_BG = (251, 240, 240)  # Seccion 5 y 6: Noticias / Glosario
+RED_SOFTEST_BG = (230, 184, 184)  # Seccion 5 y 6: Noticias / Glosario (un poco mas suave que la Seccion 2)
 
 
 def pe_verdict(pe: float | None) -> str:
