@@ -32,6 +32,18 @@ def answer_callback(callback_id: str) -> None:
 
 
 def main() -> None:
+    # Diagnostico temporal: describe el token SIN revelarlo, para detectar
+    # espacios/saltos de linea colados al pegarlo como secret en GitHub.
+    print(
+        "TELEGRAM_BOT_TOKEN diagnostico: "
+        f"longitud={len(TOKEN)}, "
+        f"empieza_con_espacio={TOKEN != TOKEN.lstrip()}, "
+        f"termina_con_espacio={TOKEN != TOKEN.rstrip()}, "
+        f"contiene_espacio_interno={' ' in TOKEN.strip()}, "
+        f"contiene_salto_de_linea={chr(10) in TOKEN or chr(13) in TOKEN}, "
+        f"primeros_3={TOKEN[:3]!r}, ultimos_3={TOKEN[-3:]!r}"
+    )
+
     ensure_bot_command()
 
     # Diagnostico temporal: si hay un webhook configurado en este bot,
