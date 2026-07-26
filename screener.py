@@ -774,6 +774,9 @@ HAIRLINE = (200, 205, 212)
 CANVAS_SOFT = (238, 241, 246)
 WHITE = (255, 255, 255)
 NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
+# Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
+# navy + el naranja del logo + un par de tonos neutros de apoyo.
+PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150, 60), (150, 90, 90)]
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -843,6 +846,59 @@ SUMMARY_WIDTHS = (7, 16, 15, 18, 16, 20, 24, 14, 14, 12, 14, 11, 11, 13, 17, 24)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
+
+
+def make_donut_chart(data: dict[str, int], size: int = 400, hole_ratio: float = 0.55):
+    """Grafica circular (donut) en PIL a partir de un Counter/dict
+    etiqueta->cantidad. Se devuelve una imagen en memoria (fpdf2 acepta
+    objetos PIL directamente, sin escribir a disco)."""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    total = sum(data.values()) or 1
+    start = -90.0
+    for i, (label, value) in enumerate(data.items()):
+        extent = 360.0 * value / total
+        if extent > 0:
+            color = PIE_PALETTE[i % len(PIE_PALETTE)]
+            d.pieslice([2, 2, size - 2, size - 2], start, start + extent, fill=(*color, 255))
+        start += extent
+    hole = size * hole_ratio
+    off = (size - hole) / 2
+    d.ellipse([off, off, off + hole, off + hole], fill=(255, 255, 255, 255))
+    return img
+
+
+def render_pie_block(pdf: FPDF, x: float, width: float, y: float, title: str, data: dict[str, int]) -> None:
+    """Dibuja una grafica circular con su leyenda (color + etiqueta + %)
+    dentro de una columna de ancho 'width', empezando en (x, y)."""
+    diameter = 40
+    pdf.set_xy(x, y)
+    pdf.set_font("Helvetica", size=10, style="B")
+    pdf.set_text_color(*INK)
+    pdf.multi_cell(width, 5, sanitize(title), align="L")
+
+    total = sum(data.values()) or 1
+    chart_x = x + (width - diameter) / 2
+    chart_y = pdf.get_y() + 2
+    if total and data:
+        img = make_donut_chart(data)
+        pdf.image(img, x=chart_x, y=chart_y, w=diameter, h=diameter)
+
+    legend_y = chart_y + diameter + 4
+    pdf.set_font("Helvetica", size=8)
+    for i, (label, value) in enumerate(data.items()):
+        color = PIE_PALETTE[i % len(PIE_PALETTE)]
+        pct = fmt_es(100 * value / total, 1)
+        pdf.set_xy(x, legend_y)
+        pdf.set_fill_color(*color)
+        pdf.rect(x, legend_y + 1, 3, 3, style="F")
+        pdf.set_text_color(*INK)
+        pdf.set_x(x + 5)
+        pdf.cell(width - 5, 4.5, sanitize(f"{label}: {value} ({pct}%)"))
+        legend_y += 4.5
+    pdf.set_text_color(*INK)
 
 
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
@@ -1016,57 +1072,78 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: institucional (navy + sans-serif), estilo nota de analisis
-    # de renta variable. NO es una plantilla real de JPMorgan ni de ningun
-    # otro banco: ver clausula de no afiliacion en el aviso legal. Logo
-    # grande solo aqui (paginas interiores llevan la version pequeña via
-    # header()); dentro de los margenes normales del documento, no a sangre.
+    # --- Portada: al estilo "carta anual" (logo arriba a la izquierda,
+    # titular grande, credito + logo pequeño abajo), a peticion del usuario
+    # tras enseñar la portada de la carta de Buffett editada por ING/Value
+    # School como referencia. NO es una plantilla real de JPMorgan, ING ni
+    # de ningun otro banco: ver clausula de no afiliacion en la pagina
+    # siguiente. Logo grande solo aqui (paginas interiores llevan la
+    # version pequeña via header()).
     pdf.add_page()
     if os.path.exists(SEF_LOGO_PATH):
-        logo_big = 32
-        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_big) / 2, y=16, w=logo_big, h=logo_big)
-    pdf.set_y(55)
-    pdf.set_font("Helvetica", size=9, style="B")
-    pdf.set_text_color(*NAVY)
-    pdf.cell(0, 6, "RENTA VARIABLE - ANALISIS AUTOMATIZADO", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-    pdf.set_font("Helvetica", size=32, style="B")
-    pdf.set_text_color(*INK)
-    pdf.cell(0, 14, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-    pdf.set_font("Helvetica", size=10)
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 6, sanitize(f"Informe realizado por SEF - {datetime.now():%d/%m/%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*INK)
-    pdf.ln(8)
+        pdf.image(SEF_LOGO_PATH, x=pdf.l_margin, y=12, w=20, h=20)
 
-    # Bloque de cifras clave estilo "term sheet": etiqueta/valor con lineas finas.
-    stats = [
-        ("Fecha de generacion", sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}")),
-        ("Cobertura del analisis", sanitize(f"{len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - {coverage_txt}")),
-        (f"Mercados en el Top {len(top)}", sanitize(top_coverage_txt)),
-        ("P/E medio global", avg_txt),
-    ]
-    table_w = 200
-    label_w = 62
-    x0 = (pdf.w - table_w) / 2
+    pdf.set_y(95)
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=34, style="B")
+    pdf.set_text_color(*NAVY)
+    pdf.cell(0, 14, "Informe de acciones", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin + 22)
+    pdf.cell(0, 14, "para tu watchlist", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=16, style="B")
+    pdf.set_text_color(*INK)
+    pdf.cell(0, 9, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), new_x="LMARGIN", new_y="NEXT")
+
+    # Credito + logo pequeño abajo a la izquierda (estilo "Edicion a cargo de").
+    pdf.set_y(-45)
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=9)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(0, 6, "Informe realizado por", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+    if os.path.exists(SEF_LOGO_PATH):
+        pdf.image(SEF_LOGO_PATH, x=pdf.l_margin, y=pdf.get_y(), w=8, h=8)
+    pdf.set_xy(pdf.l_margin + 10, pdf.get_y() + 1)
+    pdf.set_font("Helvetica", size=11, style="B")
+    pdf.set_text_color(*NAVY)
+    pdf.cell(0, 6, "SEF-FINANCIAL", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin + 10)
+    pdf.set_font("Helvetica", size=8)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(0, 5, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+
+    # --- Indice (pagina reservada, se rellena sola al final) ---
+    pdf.add_page()
+    pdf.insert_toc_placeholder(render_toc)
+
+    # --- Seccion 1: Panorama de mercado (graficas circulares + aviso legal) ---
+    # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
+    # nueva; añadir otra generaba una pagina en blanco de mas en cada informe.
+    pdf.start_section("Panorama de mercado")
+    section_header(pdf, "Seccion 1", "Panorama de mercado")
+    pdf.set_font("Helvetica", size=9, style="I")
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(
+        0, 6,
+        sanitize(f"Cobertura del analisis: {len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - P/E medio global: {avg_txt}"),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.set_text_color(*INK)
+    pdf.ln(6)
+
+    recommendation_counts: Counter = Counter(o["recommendation"] for o in top)
+    col_w = pdf.epw / 3
+    y0 = pdf.get_y()
+    render_pie_block(pdf, pdf.l_margin, col_w - 6, y0, "Mercados - todas las acciones analizadas", dict(coverage.most_common()))
+    render_pie_block(pdf, pdf.l_margin + col_w, col_w - 6, y0, f"Mercados - Top {len(top)}", dict(top_coverage.most_common()))
+    render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Recomendacion - Top {len(top)}", dict(recommendation_counts.most_common()))
+    pdf.set_y(y0 + 85)
+
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.3)
-    y = pdf.get_y()
-    for label, value in stats:
-        pdf.set_xy(x0, y)
-        pdf.set_font("Helvetica", size=9, style="B")
-        pdf.set_text_color(*NAVY)
-        pdf.cell(label_w, 8, label)
-        pdf.set_font("Helvetica", size=9)
-        pdf.set_text_color(*INK)
-        pdf.cell(table_w - label_w, 8, value)
-        y += 8
-        pdf.line(x0, y, x0 + table_w, y)
-    pdf.ln(12)
-
-    pdf.set_draw_color(*NAVY)
-    pdf.set_line_width(0.5)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(4)
@@ -1079,22 +1156,17 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         "opcionalmente, Financial Modeling Prep). No constituye asesoramiento "
         "financiero ni recomendacion de inversion personalizada. El diseño de este "
         "documento esta inspirado, con fines de legibilidad, en el formato habitual "
-        "de una nota de analisis de renta variable; no es una publicacion real de "
-        "J.P. Morgan Chase & Co. ni de ningun otro banco o entidad financiera "
-        "regulada, ni esta afiliado, respaldado o revisado por ellos.",
+        "de una carta/nota de analisis financiero; no es una publicacion real de "
+        "J.P. Morgan Chase & Co., ING, Value School ni de ninguna otra entidad "
+        "financiera regulada, ni esta afiliado, respaldado o revisado por ellas.",
         align="L",
     )
     pdf.set_text_color(*INK)
 
-    # --- Indice (pagina reservada, se rellena sola al final) ---
+    # --- Seccion 2: Tabla resumen ---
     pdf.add_page()
-    pdf.insert_toc_placeholder(render_toc)
-
-    # --- Seccion 1: Tabla resumen ---
-    # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
-    # nueva; añadir otra generaba una pagina en blanco de mas en cada informe.
     pdf.start_section("Tabla resumen (Top 10)")
-    section_header(pdf, "Seccion 1", "Tabla resumen (Top 10)")
+    section_header(pdf, "Seccion 2", "Tabla resumen (Top 10)")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
@@ -1104,12 +1176,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.ln(4)
     render_detailed_descriptions(pdf, top, glossary_links)
 
-    # --- Seccion 2: Empresas de pequeña capitalizacion ---
+    # --- Seccion 3: Empresas de pequeña capitalizacion ---
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
-    section_header(pdf, "Seccion 2", f"Empresas de pequeña capitalizacion (Top {len(top_small)})")
+    section_header(pdf, "Seccion 3", f"Empresas de pequeña capitalizacion (Top {len(top_small)})")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1136,10 +1208,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.set_font("Helvetica", size=9)
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
 
-    # --- Seccion 3: Cesta tematica "Trump trade" ---
+    # --- Seccion 4: Cesta tematica "Trump trade" ---
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
-    section_header(pdf, "Seccion 3", "Cesta tematica 'Trump trade'")
+    section_header(pdf, "Seccion 4", "Cesta tematica 'Trump trade'")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1163,10 +1235,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.ln(4)
     render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
 
-    # --- Seccion 4: Noticias recientes (al final, antes del glosario) ---
+    # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "Seccion 4", "Noticias recientes (traducidas)")
+    section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
     seen_symbols = set()
     for o in top + top_small + top_trump:
         if o["symbol"] in seen_symbols:
@@ -1199,11 +1271,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             pdf.ln(2)
         pdf.ln(2)
 
-    # --- Seccion 5: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 6: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 5", "Glosario de variables")
+    section_header(pdf, "Seccion 6", "Glosario de variables")
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)
