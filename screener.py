@@ -771,16 +771,18 @@ GLOSSARY = [
 INK = (0, 0, 0)
 BODY_GRAY = (90, 90, 90)
 HAIRLINE = (200, 205, 212)
-CANVAS_SOFT = (238, 241, 246)
+CANVAS_SOFT = (240, 220, 220)  # cabecera/zebra de tabla en tono rojizo, a juego con el fondo de seccion
 WHITE = (255, 255, 255)
 NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
 # Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
 # navy + el naranja del logo + un par de tonos neutros de apoyo.
 PIE_PALETTE = [NAVY, (214, 122, 44), (90, 140, 130), (170, 170, 170), (190, 150, 60), (150, 90, 90)]
 # Fondo de pagina completa para diferenciar secciones a simple vista (ver
-# ReportPDF via pdf.page_background, atributo nativo de fpdf2): muy suaves
+# ReportPDF via pdf.page_background, atributo nativo de fpdf2): un gradiente
+# de rojo que va de mas saturado (Panorama, la primera seccion) a mas suave
+# (Cesta tematica), y termina en blanco (Noticias/Glosario) - muy suaves
 # para que el texto negro siga siendo perfectamente legible.
-BLUE_LIGHT_BG = (194, 213, 232)  # Panorama de mercado, Noticias y Glosario
+RED_FULL_BG = (208, 140, 140)  # Seccion 1: Panorama de mercado
 RED_DARK_BG = (222, 176, 176)  # Seccion 2: Tabla resumen (Top 10)
 RED_MID_BG = (236, 202, 202)  # Seccion 3: Empresas de pequeña capitalizacion
 RED_SOFT_BG = (247, 226, 226)  # Seccion 4: Cesta tematica "Trump trade"
@@ -1267,15 +1269,15 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # del indice, pero antes de insert_toc_placeholder) para que la pagina
     # que ese metodo crea internamente para "saltar" el indice (ver
     # FPDF._perform_page_break, llamado 'toc_pages' veces en bucle) ya nazca
-    # con el fondo azul puesto: esa es la pagina que reutiliza la Seccion 1
-    # sin necesitar su propio add_page() (ver nota mas abajo).
-    pdf.page_background = BLUE_LIGHT_BG
+    # con el fondo puesto: esa es la pagina que reutiliza la Seccion 1 sin
+    # necesitar su propio add_page() (ver nota mas abajo).
+    pdf.page_background = RED_FULL_BG
     pdf.insert_toc_placeholder(render_toc, pages=toc_pages)
 
     # --- Seccion 1: Panorama de mercado (graficas circulares + aviso legal) ---
     # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
-    # nueva (con el fondo azul ya aplicado, ver arriba); añadir otra
-    # generaba una pagina en blanco de mas en cada informe.
+    # nueva (con el fondo ya aplicado, ver arriba); añadir otra generaba una
+    # pagina en blanco de mas en cada informe.
     pdf.start_section("Panorama de mercado")
     section_header(pdf, "Seccion 1", "Panorama de mercado")
     pdf.set_font("Helvetica", size=9, style="I")
@@ -1400,10 +1402,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
-    # Mismo tinte (azul claro) que el Panorama de mercado y el Glosario
-    # (seccion 6): ambas quedan activas hasta el final del documento, no
-    # hace falta resetear entre medias.
-    pdf.page_background = BLUE_LIGHT_BG
+    # Sin tinte (fondo blanco), igual que el Glosario (seccion 6): el
+    # gradiente de rojo de las secciones anteriores termina aqui, en blanco.
+    # Ambas quedan activas hasta el final del documento, no hace falta
+    # resetear entre medias.
+    pdf.page_background = None
     pdf.add_page()
     pdf.start_section("Noticias recientes")
     section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
