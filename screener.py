@@ -884,7 +884,7 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
 # la primera ficha y para el hueco entre fichas, de modo que la separacion
 # entre subsecciones coincide con la de arriba. Es un tope: si sobra menos
 # hoja, se reparte lo que haya.
-MAX_FICHA_SPACING = 10
+MAX_FICHA_SPACING = 12
 
 # Tope de la altura de fila de las tablas resumen: con pocas filas, repartir
 # TODO el alto de la hoja entre ellas daria filas desproporcionadas.
