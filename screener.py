@@ -738,13 +738,17 @@ GLOSSARY = [
                      "de mercado."),
 ]
 
-HEADER_FILL = (30, 60, 90)      # portada / tabla - azul
-SMALLCAP_FILL = (150, 40, 40)   # empresas pequeñas - granate
-TRUMP_FILL = (90, 90, 90)       # cesta tematica - gris neutro
-DESC_FILL = (34, 120, 80)       # descripciones - verde
-NEWS_FILL = (200, 110, 20)      # noticias - naranja
-GLOSSARY_FILL = (90, 50, 120)   # glosario - morado
-ZEBRA_FILL = (235, 238, 242)
+# Paleta editorial (inspirada en la ficha DESIGN.md de WIRED, VoltAgent/
+# awesome-design-md): blanco y negro con un unico acento de color, en vez de
+# un banner solido distinto por seccion — asi el informe lee como un informe
+# impreso, no como una diapositiva de colores.
+INK = (0, 0, 0)
+BODY_GRAY = (117, 117, 117)
+HAIRLINE = (224, 224, 224)
+CANVAS_SOFT = (245, 245, 245)
+ACCENT_LINK = (5, 125, 188)      # unico acento de color: enlaces/citas inline
+ACCENT_SMALLCAP = (140, 40, 40)  # kicker seccion 2 - aviso de riesgo
+ACCENT_TRUMP = (90, 90, 90)      # kicker seccion 3 - deliberadamente neutro
 
 
 def pe_verdict(pe: float | None) -> str:
@@ -760,25 +764,31 @@ def pe_verdict(pe: float | None) -> str:
 class ReportPDF(FPDF):
     def footer(self) -> None:
         if self.page_no() == 1:
-            return  # portada con fondo de color propio, sin pie de pagina
+            return  # portada sin pie de pagina (es la unica pagina "de cubierta")
         self.set_y(-12)
         self.set_font("Helvetica", size=8)
-        self.set_text_color(130, 130, 130)
+        self.set_text_color(*BODY_GRAY)
         self.cell(0, 8, sanitize(f"Pagina {self.page_no()} de {{nb}}"), align="C")
 
 
-def section_header(pdf: FPDF, text: str, color: tuple[int, int, int]) -> None:
-    pdf.set_fill_color(*color)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", size=14, style="B")
-    pdf.cell(pdf.epw, 10, sanitize(text), fill=True, new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-    # pdf.table() clona el fill_color activo en este punto como base para las
-    # celdas SIN rayado (zebra); si no se resetea a blanco aqui, esas celdas
-    # heredan el color de la cabecera de seccion y el texto queda casi
-    # ilegible (ej. texto oscuro sobre azul marino).
-    pdf.set_fill_color(255, 255, 255)
-    pdf.ln(3)
+def section_header(pdf: FPDF, kicker: str, title: str, accent: tuple[int, int, int] = INK) -> None:
+    """Cabecera editorial: pequeño 'kicker' en mayusculas (color de acento
+    opcional) + titular serif + linea fina — en vez de un banner solido de
+    color, que es lo que hacia que el informe pareciera una diapositiva."""
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=9, style="B")
+    pdf.set_text_color(*accent)
+    pdf.cell(0, 6, sanitize(kicker.upper()), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.set_font("Times", size=20)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(0, 11, sanitize(title), new_x="LMARGIN", new_y="NEXT")
+    y = pdf.get_y() + 1
+    pdf.set_draw_color(*INK)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.set_font("Helvetica", size=10)
+    pdf.ln(6)
 
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
@@ -789,16 +799,21 @@ SUMMARY_WIDTHS = (7, 16, 15, 15, 13, 20, 30, 14, 14, 12, 14, 11, 11, 13, 17, 24)
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
 
 
-def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, headings_fill: tuple[int, int, int]) -> None:
+def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
+    """Tabla con cabecera neutra (fondo gris muy claro, texto negro), sin
+    color de seccion: mismo tratamiento en las 3 tablas del informe, estilo
+    tabla de datos editorial (fondo canvas-soft, filas con linea fina)."""
     from fpdf.fonts import FontFace
 
+    pdf.set_fill_color(255, 255, 255)  # ver nota en section_header sobre fill_color heredado
+    pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
-    headings_style = FontFace(emphasis="B", color=(255, 255, 255), fill_color=headings_fill)
+    headings_style = FontFace(emphasis="B", color=INK, fill_color=CANVAS_SOFT)
     with pdf.table(
         col_widths=SUMMARY_WIDTHS,
         text_align=SUMMARY_ALIGN,
         headings_style=headings_style,
-        cell_fill_color=ZEBRA_FILL,
+        cell_fill_color=CANVAS_SOFT,
         cell_fill_mode="EVEN_ROWS",
         borders_layout="HORIZONTAL_LINES",
     ) as table:
@@ -832,21 +847,26 @@ def render_toc(pdf: FPDF, outline) -> None:
     # donde quedo el cursor tras la ULTIMA pagina del documento (normalmente
     # cerca del margen derecho) y sale cortado en la esquina.
     pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=16, style="B")
-    pdf.set_text_color(*HEADER_FILL)
-    pdf.cell(0, 12, "Indice", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(6)
+    pdf.set_font("Times", size=24)
+    pdf.set_text_color(*INK)
+    pdf.cell(0, 13, "Indice", new_x="LMARGIN", new_y="NEXT")
+    y = pdf.get_y() + 1
+    pdf.set_draw_color(*INK)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.ln(8)
     pdf.set_font("Helvetica", size=12)
     for section in outline:
         link = pdf.add_link(page=section.page_number)
         indent = "    " * section.level
         pdf.set_x(pdf.l_margin)
+        pdf.set_text_color(*ACCENT_LINK)
         pdf.cell(
             0, 10,
             sanitize(f"{indent}{section.name}  ...  pag. {section.page_number}"),
             new_x="LMARGIN", new_y="NEXT", link=link,
         )
+    pdf.set_text_color(*INK)
 
 
 def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
@@ -865,32 +885,49 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada ---
+    # --- Portada: masthead editorial (blanco y negro, sin banner de color) ---
     pdf.add_page()
-    pdf.set_fill_color(*HEADER_FILL)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_y(pdf.h / 2 - 30)
-    pdf.set_font("Helvetica", size=26, style="B")
-    pdf.cell(0, 14, "Screener de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=14)
-    pdf.cell(0, 10, sanitize(f"Informe generado el {datetime.now():%d/%m/%Y a las %H:%M}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.set_y(45)
+    pdf.set_font("Helvetica", size=10, style="B")
+    pdf.cell(0, 6, "S T O C K   S C R E E N E R", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    pdf.set_font("Times", size=40)
+    pdf.cell(0, 18, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    y = pdf.get_y()
+    pdf.set_draw_color(*INK)
+    pdf.set_line_width(0.6)
+    pdf.line(pdf.w / 2 - 25, y, pdf.w / 2 + 25, y)
+    pdf.ln(8)
+    pdf.set_font("Times", size=13, style="I")
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(0, 8, sanitize(f"Generado el {datetime.now():%d/%m/%Y a las %H:%M}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
     pdf.set_font("Helvetica", size=11)
     pdf.cell(0, 8, f"Top {len(top)} de la watchlist analizada - P/E medio global: {avg_txt}", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
     pdf.set_font("Helvetica", size=9)
+    pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, sanitize(f"Cobertura del analisis: {len(rows)} acciones ({n_small_cap} de pequeña capitalizacion) - {coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 6, sanitize(f"Mercados en este Top {len(top)}: {top_coverage_txt}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(6)
-    pdf.set_font("Helvetica", size=9, style="I")
+    pdf.ln(10)
+    pdf.set_draw_color(*HAIRLINE)
+    pdf.set_line_width(0.3)
+    box_y1 = pdf.get_y()
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.set_x(pdf.l_margin + 30)
     pdf.multi_cell(
-        pdf.epw, 5,
+        pdf.epw - 60, 5,
         "Informe automatico basado en datos publicos (Yahoo Finance). No "
         "constituye asesoramiento financiero ni recomendacion de inversion "
         "personalizada.",
         align="C",
     )
-    pdf.set_text_color(0, 0, 0)
+    box_y2 = pdf.get_y()
+    pdf.line(pdf.l_margin + 30, box_y1 - 2, pdf.w - pdf.r_margin - 30, box_y1 - 2)
+    pdf.line(pdf.l_margin + 30, box_y2 + 2, pdf.w - pdf.r_margin - 30, box_y2 + 2)
+    pdf.set_text_color(*INK)
 
     # --- Indice (pagina reservada, se rellena sola al final) ---
     pdf.add_page()
@@ -900,19 +937,22 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # Sin add_page() aqui: insert_toc_placeholder ya salto a una pagina
     # nueva; añadir otra generaba una pagina en blanco de mas en cada informe.
     pdf.start_section("Tabla resumen (Top 10)")
-    section_header(pdf, "1. Tabla resumen (Top 10)", HEADER_FILL)
+    section_header(pdf, "Seccion 1", "Tabla resumen (Top 10)")
     pdf.set_font("Helvetica", size=8, style="I")
+    pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
     pdf.ln(3)
-    render_summary_table(pdf, top, glossary_links, HEADER_FILL)
+    render_summary_table(pdf, top, glossary_links)
 
     # --- Seccion 2: Empresas de pequeña capitalizacion ---
     # add_page() antes de start_section: si no, el indice enlaza a la
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
-    section_header(pdf, f"2. Empresas de pequeña capitalizacion (Top {len(top_small)})", SMALLCAP_FILL)
+    section_header(pdf, "Seccion 2", f"Empresas de pequeña capitalizacion (Top {len(top_small)})", ACCENT_SMALLCAP)
     pdf.set_font("Helvetica", size=8, style="I")
+    pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
         pdf.epw, 5,
         sanitize(
@@ -927,9 +967,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         ),
         align="L",
     )
+    pdf.set_text_color(*INK)
     pdf.ln(3)
     if top_small:
-        render_summary_table(pdf, top_small, glossary_links, SMALLCAP_FILL)
+        render_summary_table(pdf, top_small, glossary_links)
         pdf.ln(4)
         for o in top_small:
             pdf.set_font("Helvetica", size=9, style="B")
@@ -947,8 +988,9 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # --- Seccion 3: Cesta tematica "Trump trade" ---
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
-    section_header(pdf, "3. Cesta tematica 'Trump trade'", TRUMP_FILL)
+    section_header(pdf, "Seccion 3", "Cesta tematica 'Trump trade'", ACCENT_TRUMP)
     pdf.set_font("Helvetica", size=8, style="I")
+    pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
         pdf.epw, 5,
         sanitize(
@@ -964,8 +1006,9 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         ),
         align="L",
     )
+    pdf.set_text_color(*INK)
     pdf.ln(3)
-    render_summary_table(pdf, top_trump, glossary_links, TRUMP_FILL)
+    render_summary_table(pdf, top_trump, glossary_links)
     pdf.ln(4)
     for o in top_trump:
         theme = TRUMP_TRADE_THEMES.get(o["symbol"], "")
@@ -981,13 +1024,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # --- Seccion 4: Descripcion detallada por accion (Top 10 principal) ---
     pdf.add_page()
     pdf.start_section("Descripcion detallada por accion")
-    section_header(pdf, "4. Descripcion detallada por accion", DESC_FILL)
+    section_header(pdf, "Seccion 4", "Descripcion detallada por accion")
     for i, o in enumerate(top, start=1):
         pdf.set_font("Helvetica", size=12, style="B")
         pdf.set_x(pdf.l_margin)
         pdf.cell(0, 8, sanitize(f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"), new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", size=9)
+        pdf.set_text_color(*ACCENT_LINK)  # lineas con enlace al glosario
         pdf.set_x(pdf.l_margin)
         price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
         target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
@@ -1040,6 +1084,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.set_x(pdf.l_margin)
         pdf.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
         pdf.ln(6)
+        pdf.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
 
@@ -1051,7 +1096,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "5. Noticias recientes (traducidas)", NEWS_FILL)
+    section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
     seen_symbols = set()
     for o in top + top_small + top_trump:
         if o["symbol"] in seen_symbols:
@@ -1065,18 +1110,22 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, 7, sanitize(o["symbol"]), new_x="LMARGIN", new_y="NEXT")
         for item in news:
             pdf.set_font("Helvetica", size=9, style="B")
+            pdf.set_text_color(*ACCENT_LINK)
             pdf.set_x(pdf.l_margin)
             pdf.multi_cell(
                 pdf.epw, 5, sanitize(f"- {item['title_es']}"),
                 link=item["link"] or None, align="L",
             )
+            pdf.set_text_color(*INK)
             if item["summary_es"]:
                 pdf.set_font("Helvetica", size=9)
                 pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(pdf.epw, 5, sanitize(item["summary_es"]), align="L")
             pdf.set_font("Helvetica", size=8, style="I")
+            pdf.set_text_color(*ACCENT_LINK)
             pdf.set_x(pdf.l_margin)
             pdf.cell(0, 5, sanitize(item["sentiment"]), link=glossary_links["Sentimiento noticia"], new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*INK)
             pdf.ln(2)
         pdf.ln(2)
 
@@ -1084,7 +1133,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "6. Glosario de variables", GLOSSARY_FILL)
+    section_header(pdf, "Seccion 6", "Glosario de variables")
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)

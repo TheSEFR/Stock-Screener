@@ -21,6 +21,7 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
   - [3. Ejecutar](#3-ejecutar)
 - [Personalizar la watchlist](#personalizar-la-watchlist)
 - [Cesta temática "Trump trade"](#cesta-temática-trump-trade)
+- [Diseño del PDF](#diseño-del-pdf)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Automatización (GitHub Actions)](#automatización-github-actions)
 - [Glosario de métricas](#glosario-de-métricas)
@@ -232,6 +233,16 @@ de detención con ICE y luego borró esas subidas cuando hubo backlash público
 por las condiciones de los centros. Que una acción aparezca aquí **no es una
 recomendación de compra ni de venta**, solo documenta una narrativa de
 mercado — se rankea con los mismos criterios que el resto del informe.
+
+## Diseño del PDF
+
+El informe usa un lenguaje visual editorial (blanco y negro, titulares en
+serif, líneas finas, un único color de acento para enlaces) en vez de
+banners de color sólido por sección, para que se lea como un informe
+impreso y no como una diapositiva. Inspirado en la ficha de diseño de WIRED
+del repositorio [VoltAgent/awesome-design-md](https://github.com/voltagent/awesome-design-md)
+(no afiliado a WIRED ni a Condé Nast, es una interpretación libre de su
+lenguaje visual público).
 
 ## Estructura del proyecto
 
