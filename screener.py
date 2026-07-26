@@ -298,19 +298,37 @@ def is_small_cap(r: dict) -> bool:
     return r["market_cap"] is not None and r["market_cap"] < SMALL_CAP_MAX
 
 
+_ES_NUMBER_TABLE = str.maketrans({",": ".", ".": ","})
+
+
+def fmt_es(value: float, decimals: int = 2) -> str:
+    """Formatea un numero con el convenio numerico español/europeo (punto
+    de millar, coma decimal: '249.500,00' en vez de '249,500.00'). Los
+    precios grandes (ej. Samsung en KRW) se leian "mal escritos" con el
+    formato de Python por defecto, que es el convenio anglosajon inverso."""
+    return f"{value:,.{decimals}f}".translate(_ES_NUMBER_TABLE)
+
+
+def fmt_pct(value: float, decimals: int = 1, signed: bool = False) -> str:
+    """Porcentaje en convenio español (coma decimal), opcionalmente con
+    signo +/- explicito (ej. Potencial de subida/bajada)."""
+    sign = ("+" if value >= 0 else "-") if signed else ""
+    return f"{sign}{fmt_es(abs(value) if signed else value, decimals)}%"
+
+
 def format_market_cap(value: float | None) -> str:
     """Escala compacta del market cap en la moneda nativa del ticker (ver
     columna 'Pais'/glosario 'Cap.'). Necesita nivel T (billones/trillion):
     acciones en wones surcoreanos, yenes, etc. usan cifras mucho mayores
     que en USD/EUR para el mismo valor real, y sin este nivel el numero se
-    desbordaba la columna (ej. Samsung: "1638357.6B" en vez de "1638.4T")."""
+    desbordaba la columna (ej. Samsung: "1638357.6B" en vez de "1638,4T")."""
     if not value:
         return "n/d"
     if value >= 1_000_000_000_000:
-        return f"{value / 1_000_000_000_000:.1f}T"
+        return f"{fmt_es(value / 1_000_000_000_000, 1)}T"
     if value >= 1_000_000_000:
-        return f"{value / 1_000_000_000:.1f}B"
-    return f"{value / 1_000_000:.0f}M"
+        return f"{fmt_es(value / 1_000_000_000, 1)}B"
+    return f"{fmt_es(value / 1_000_000, 0)}M"
 
 
 def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
@@ -768,7 +786,25 @@ def pe_verdict(pe: float | None) -> str:
     return "caro / alto crecimiento (ref. general)"
 
 
+SEF_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "sef_logo.png")
+
+
 class ReportPDF(FPDF):
+    def header(self) -> None:
+        """Logo + marca 'SEF-Financial' repetidos en la esquina superior de
+        CADA pagina (incluida la portada), como pidio el usuario."""
+        logo_size = 9
+        x_logo = self.w - self.r_margin - logo_size
+        y_logo = 5
+        if os.path.exists(SEF_LOGO_PATH):
+            self.image(SEF_LOGO_PATH, x=x_logo, y=y_logo, w=logo_size, h=logo_size)
+        self.set_font("Helvetica", size=9, style="B")
+        self.set_text_color(*NAVY)
+        self.set_xy(x_logo - 55, y_logo + 1)
+        self.cell(53, logo_size - 1, "SEF-FINANCIAL", align="R")
+        self.set_text_color(*INK)
+        self.set_y(self.t_margin)
+
     def footer(self) -> None:
         if self.page_no() == 1:
             return  # portada sin pie de pagina (es la unica pagina "de cubierta")
@@ -779,24 +815,21 @@ class ReportPDF(FPDF):
 
 
 def section_header(pdf: FPDF, kicker: str, title: str) -> None:
-    """Cabecera institucional: kicker navy en mayusculas + titular sans-serif
-    en negrita + regla navy — mismo tratamiento en las 5 secciones (sin
-    codigo de color distinto por seccion, para que se lea como una nota de
-    analisis uniforme, no como una revista con secciones tematicas)."""
+    """Cabecera integrada con el cuerpo (kicker gris pequeño + titulo negro
+    en negrita, sin regla ni bloque de color separandolo del texto que
+    sigue): el color (navy) se reserva para el logo y los enlaces, no se
+    reparte por toda la maqueta, y el titulo queda pegado al parrafo
+    siguiente en vez de flotar como un bloque aparte."""
     pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=9, style="B")
-    pdf.set_text_color(*NAVY)
-    pdf.cell(0, 6, sanitize(kicker.upper()), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=8, style="B")
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(0, 5, sanitize(kicker.upper()), new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
-    pdf.set_font("Helvetica", size=19, style="B")
+    pdf.set_font("Helvetica", size=17, style="B")
     pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 11, sanitize(title), new_x="LMARGIN", new_y="NEXT")
-    y = pdf.get_y() + 1
-    pdf.set_draw_color(*NAVY)
-    pdf.set_line_width(0.8)
-    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.cell(0, 9, sanitize(title), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", size=10)
-    pdf.ln(6)
+    pdf.ln(4)
 
 
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
@@ -808,15 +841,16 @@ SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R"
 
 
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
-    """Tabla estilo nota de analisis: cabecera navy solida con texto blanco,
-    filas con zebra gris-azulado muy suave y lineas finas horizontales —
+    """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
+    reserva para el logo y los enlaces, no se reparte por toda la tabla.
+    Filas con zebra gris-azulado suave y lineas finas horizontales —
     mismo tratamiento en las 3 tablas del informe."""
     from fpdf.fonts import FontFace
 
     pdf.set_fill_color(255, 255, 255)  # ver nota en section_header sobre fill_color heredado
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
-    headings_style = FontFace(emphasis="B", color=WHITE, fill_color=NAVY)
+    headings_style = FontFace(emphasis="B", color=INK, fill_color=CANVAS_SOFT)
     with pdf.table(
         col_widths=SUMMARY_WIDTHS,
         text_align=SUMMARY_ALIGN,
@@ -832,18 +866,18 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -
             row = table.row()
             row.cell(str(i))
             row.cell(o["symbol"])
-            row.cell(f"{o['current_price']:,.2f}" if o["current_price"] else "n/d")
-            row.cell(f"{o['target_price']:,.2f}" if o["target_price"] else "n/d")
-            row.cell(f"{o['upside'] * 100:+.1f}%" if o["upside"] is not None else "n/d")
+            row.cell(fmt_es(o["current_price"]) if o["current_price"] else "n/d")
+            row.cell(fmt_es(o["target_price"]) if o["target_price"] else "n/d")
+            row.cell(fmt_pct(o["upside"] * 100, signed=True) if o["upside"] is not None else "n/d")
             row.cell(sanitize(o["country"] or "n/a"))
             row.cell(sanitize(o["sector"] or "n/a"))
             row.cell(format_market_cap(o["market_cap"]))
             row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
             row.cell(f"{o['score']}/{o['checks_applicable']}")
             row.cell(f"{o['quality_score']}/{o['quality_applicable']}")
-            row.cell(f"{o['pe']:.1f}" if o["pe"] else "n/d")
-            row.cell(f"{o['peg']:.2f}" if o["peg"] else "n/d")
-            row.cell(f"{o['growth']*100:.1f}%" if o["growth"] else "n/d")
+            row.cell(fmt_es(o["pe"], 1) if o["pe"] else "n/d")
+            row.cell(fmt_es(o["peg"], 2) if o["peg"] else "n/d")
+            row.cell(fmt_pct(o["growth"] * 100) if o["growth"] else "n/d")
             insider = o["insider_buying"]
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
             row.cell(o["recommendation"])
@@ -865,9 +899,9 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
         pdf.set_font("Helvetica", size=9)
         pdf.set_text_color(*NAVY)  # lineas con enlace al glosario
         pdf.set_x(pdf.l_margin)
-        price_txt = f"{o['current_price']:,.2f} {o['currency']}" if o["current_price"] else "n/d"
-        target_txt = f"{o['target_price']:,.2f} {o['currency']}" if o["target_price"] else "n/d"
-        upside_txt = f" ({o['upside'] * 100:+.1f}%)" if o["upside"] is not None else ""
+        price_txt = f"{fmt_es(o['current_price'])} {o['currency']}" if o["current_price"] else "n/d"
+        target_txt = f"{fmt_es(o['target_price'])} {o['currency']}" if o["target_price"] else "n/d"
+        upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
         pdf.cell(
             0, 6,
             sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
@@ -875,8 +909,8 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
         )
 
         pdf.set_x(pdf.l_margin)
-        pe_txt = f"{o['pe']:.1f}" if o["pe"] else "n/d"
-        sector_avg_txt = f"{o['sector_avg_pe']:.1f}" if o.get("sector_avg_pe") else "n/d"
+        pe_txt = fmt_es(o["pe"], 1) if o["pe"] else "n/d"
+        sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
         pdf.cell(
             0, 6,
             sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
@@ -885,7 +919,7 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
 
         # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
         # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
-        growth_txt = f"{o['growth'] * 100:.1f}%" if o["growth"] else "n/d"
+        growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
         growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
         rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
         pdf.set_x(pdf.l_margin)
@@ -895,11 +929,11 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
             link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
         )
 
-        roe_txt = f"{o['roe'] * 100:.1f}%" if o["roe"] is not None else "n/d"
-        margin_txt = f"{o['operating_margin'] * 100:.1f}%" if o["operating_margin"] is not None else "n/d"
-        sector_margin_txt = f"{o['sector_avg_margin'] * 100:.1f}%" if o.get("sector_avg_margin") else "n/d"
-        debt_txt = f"{o['debt_to_equity']:.0f}" if o["debt_to_equity"] is not None else "n/d"
-        liquidity_txt = f"{o['current_ratio']:.2f}" if o["current_ratio"] is not None else "n/d"
+        roe_txt = fmt_pct(o["roe"] * 100) if o["roe"] is not None else "n/d"
+        margin_txt = fmt_pct(o["operating_margin"] * 100) if o["operating_margin"] is not None else "n/d"
+        sector_margin_txt = fmt_pct(o["sector_avg_margin"] * 100) if o.get("sector_avg_margin") else "n/d"
+        debt_txt = fmt_es(o["debt_to_equity"], 0) if o["debt_to_equity"] is not None else "n/d"
+        liquidity_txt = fmt_es(o["current_ratio"], 2) if o["current_ratio"] is not None else "n/d"
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(
             pdf.epw, 6,
@@ -936,8 +970,8 @@ def render_toc(pdf: FPDF, outline) -> None:
     pdf.set_text_color(*INK)
     pdf.cell(0, 13, "Indice", new_x="LMARGIN", new_y="NEXT")
     y = pdf.get_y() + 1
-    pdf.set_draw_color(*NAVY)
-    pdf.set_line_width(0.8)
+    pdf.set_draw_color(*HAIRLINE)
+    pdf.set_line_width(0.3)
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(8)
     pdf.set_font("Helvetica", size=12)
@@ -955,7 +989,7 @@ def render_toc(pdf: FPDF, outline) -> None:
 
 
 def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
-    avg_txt = f"{avg_pe:.1f}" if avg_pe else "n/d"
+    avg_txt = fmt_es(avg_pe, 1) if avg_pe else "n/d"
     coverage = Counter(region_for(r["country"]) for r in rows)
     coverage_txt = " - ".join(f"{region}: {n}" for region, n in coverage.most_common())
     top_coverage = Counter(region_for(o["country"]) for o in top)
@@ -977,21 +1011,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: cubierta institucional (navy + sans-serif), estilo nota de
-    # analisis de renta variable. NO es una plantilla real de JPMorgan ni de
-    # ningun otro banco: ver clausula de no afiliacion en el aviso legal.
+    # --- Portada: institucional (navy + sans-serif), estilo nota de analisis
+    # de renta variable. NO es una plantilla real de JPMorgan ni de ningun
+    # otro banco: ver clausula de no afiliacion en el aviso legal. El logo
+    # y la marca "SEF-FINANCIAL" los pone header() en todas las paginas.
     pdf.add_page()
-    pdf.set_fill_color(*NAVY)
-    pdf.rect(0, 0, pdf.w, 24, style="F")
-    pdf.set_text_color(*WHITE)
-    pdf.set_font("Helvetica", size=13, style="B")
-    pdf.set_xy(pdf.l_margin, 8)
-    pdf.cell(0, 8, "STOCK SCREENER", align="L")
-    pdf.set_font("Helvetica", size=10)
-    pdf.set_xy(-pdf.r_margin - 70, 8)
-    pdf.cell(70, 8, sanitize(f"{datetime.now():%d/%m/%Y  %H:%M}"), align="R")
-
-    pdf.set_y(50)
+    pdf.set_y(35)
     pdf.set_font("Helvetica", size=9, style="B")
     pdf.set_text_color(*NAVY)
     pdf.cell(0, 6, "RENTA VARIABLE - ANALISIS AUTOMATIZADO", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -999,7 +1024,12 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_font("Helvetica", size=32, style="B")
     pdf.set_text_color(*INK)
     pdf.cell(0, 14, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(10)
+    pdf.ln(3)
+    pdf.set_font("Helvetica", size=10)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.cell(0, 6, sanitize(f"Informe realizado por SEF - {datetime.now():%d/%m/%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.ln(8)
 
     # Bloque de cifras clave estilo "term sheet": etiqueta/valor con lineas finas.
     stats = [

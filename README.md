@@ -237,14 +237,20 @@ mercado — se rankea con los mismos criterios que el resto del informe.
 
 ## Diseño del PDF
 
-El informe usa un lenguaje visual institucional (navy + sans-serif, tablas
-con cabecera solida, un unico color de acento en toda la maqueta) inspirado
-en el formato habitual de una nota de analisis de renta variable de banca
-de inversion, para que se lea como un documento serio y no como una
-diapositiva de colores. **No es una plantilla real de J.P. Morgan Chase &
-Co. ni de ningun otro banco o entidad financiera regulada**, ni esta
-afiliado, respaldado o revisado por ellos: es una interpretación genérica
-de ese lenguaje visual, sin logotipos ni marcas de terceros.
+El informe usa un lenguaje visual sobrio (titulares en negrita pegados al
+cuerpo del texto, sin reglas ni bloques de color separandolos, un unico
+color de acento -navy- reservado para el logo y los enlaces) inspirado en
+el formato de las cartas/notas de analisis financiero, para que se lea
+como un documento serio y no como una diapositiva de colores. **No es una
+plantilla real de J.P. Morgan Chase & Co. ni de ningun otro banco o entidad
+financiera regulada**, ni esta afiliado, respaldado o revisado por ellos:
+es una interpretación genérica de ese lenguaje visual.
+
+El logo ("SEF-Financial" + una gata tricolor, `assets/sef_logo.png`) es una
+marca propia del usuario, generada para este proyecto personal, y se repite
+en la esquina superior de cada pagina. Los numeros (precios, P/E, %, etc.)
+se formatean con el convenio español/europeo (punto de millar, coma
+decimal: `1.234,56`), no con el convenio anglosajon por defecto de Python.
 
 ## Estructura del proyecto
 
