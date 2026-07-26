@@ -1,4 +1,4 @@
 .env
 __pycache__/
 *.pyc
-informe.pdf
+InformeFinanciero_*.pdf

@@ -799,7 +799,7 @@ _SECTION_SCALE = [_section_shade(i / 6) for i in range(7)]
 PORTADA_BG = _SECTION_SCALE[0]  # Portada
 INDICE_BG = _SECTION_SCALE[1]  # Indice
 SECTION1_BG = _SECTION_SCALE[2]  # Seccion 1: Panorama de mercado
-SECTION2_BG = _SECTION_SCALE[3]  # Seccion 2: Tabla 10 principales acciones
+SECTION2_BG = _SECTION_SCALE[3]  # Seccion 2: Principales acciones
 SECTION3_BG = _SECTION_SCALE[4]  # Seccion 3: Empresas de pequeña capitalizacion
 SECTION4_BG = _SECTION_SCALE[5]  # Seccion 4: Cesta tematica "Trump trade"
 SECTION56_BG = _SECTION_SCALE[6]  # Seccion 5 y 6: Noticias / Glosario
@@ -879,6 +879,18 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
+def center_in_remaining_page(pdf: FPDF, content_h: float) -> None:
+    """Empuja el cursor la mitad del hueco que quede hasta el pie de
+    pagina, para que un bloque de altura 'content_h' quede centrado
+    verticalmente en el espacio restante en vez de pegado arriba con un
+    hueco enorme debajo (p.ej. la intro corta de una seccion cuya tabla
+    ahora vive en su propia hoja aparte)."""
+    available_h = (pdf.h - pdf.b_margin) - pdf.get_y()
+    leftover = available_h - content_h
+    if leftover > 0:
+        pdf.ln(leftover / 2)
+
+
 SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
 SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
 # Precio/P.Objetivo ensanchadas: numeros largos en formato español (ej. el
@@ -945,16 +957,6 @@ def render_pie_block(pdf: FPDF, x: float, width: float, y: float, title: str, da
     pdf.set_text_color(*INK)
 
 
-def ensure_table_fits(pdf: FPDF, n_rows: int) -> None:
-    """Salto de pagina previo si la tabla resumen (cabecera + n_rows) no va
-    a caber entera en lo que queda de pagina, para que nunca quede partida
-    entre dos paginas. Estimacion generosa (11mm/fila) porque algunas
-    celdas envuelven a 2 lineas (ej. sectores largos, 'COMPRA NEUTRAL')."""
-    estimated_height = 14 + n_rows * 11
-    if pdf.get_y() + estimated_height > pdf.h - pdf.b_margin:
-        pdf.add_page()
-
-
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, section_bg: tuple[int, int, int]) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.
@@ -1003,90 +1005,112 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             row.cell(o["recommendation"])
 
 
+def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_links: dict, section_number: int, theme: str) -> None:
+    """Dibuja el contenido de una ficha (una accion) en la columna que
+    empieza en 'x' con ancho 'width'. Factorizado fuera de
+    render_detailed_descriptions para poder llamarlo dos veces (columna
+    izquierda/derecha) dentro del mismo bloque pdf.unbreakable()."""
+    blk.start_section(sanitize(o["symbol"]), level=1)
+    blk.set_font("Helvetica", size=12, style="B")
+    blk.set_x(x)
+    header = f"{section_number}.{i} {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
+    if theme:
+        header += f" - {theme}"
+    blk.cell(width, 8, sanitize(header), new_x="LEFT", new_y="NEXT")
+
+    blk.set_font("Helvetica", size=9)
+    blk.set_text_color(*NAVY)  # lineas con enlace al glosario
+    blk.set_x(x)
+    price_txt = f"{fmt_es(o['current_price'])} {o['currency']}" if o["current_price"] else "n/d"
+    target_txt = f"{fmt_es(o['target_price'])} {o['currency']}" if o["target_price"] else "n/d"
+    upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
+    blk.multi_cell(
+        width, 6,
+        sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
+        link=glossary_links["Precio"], align="L",
+    )
+
+    blk.set_x(x)
+    pe_txt = fmt_es(o["pe"], 1) if o["pe"] else "n/d"
+    sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
+    blk.multi_cell(
+        width, 6,
+        sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
+        link=glossary_links["P/E"], align="L",
+    )
+
+    # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
+    # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
+    growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
+    growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
+    rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
+    blk.set_x(x)
+    blk.multi_cell(
+        width, 6,
+        sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
+        link=glossary_links["Crecim."], align="L",
+    )
+
+    roe_txt = fmt_pct(o["roe"] * 100) if o["roe"] is not None else "n/d"
+    margin_txt = fmt_pct(o["operating_margin"] * 100) if o["operating_margin"] is not None else "n/d"
+    sector_margin_txt = fmt_pct(o["sector_avg_margin"] * 100) if o.get("sector_avg_margin") else "n/d"
+    debt_txt = fmt_es(o["debt_to_equity"], 0) if o["debt_to_equity"] is not None else "n/d"
+    liquidity_txt = fmt_es(o["current_ratio"], 2) if o["current_ratio"] is not None else "n/d"
+    blk.set_x(x)
+    blk.multi_cell(
+        width, 6,
+        sanitize(
+            f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
+            f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
+            f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
+        ),
+        link=glossary_links["Calidad"], align="L",
+    )
+
+    banks = o.get("strong_buy_banks") or []
+    banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
+    blk.set_x(x)
+    blk.cell(width, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
+    blk.ln(6)
+    blk.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
+    blk.set_x(x)
+    blk.multi_cell(width, 5, sanitize(banks_txt), align="L")
+
+    blk.set_x(x)
+    description = o.get("description_es") or "Sin descripcion disponible."
+    blk.multi_cell(width, 5, sanitize(description), align="L")
+    blk.ln(4)
+
+
 def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links: dict, section_number: int, theme_map: dict | None = None) -> None:
     """Ficha detallada por accion (precio/objetivo, P/E, crecimiento,
-    calidad, bancos y descripcion). Se usa en las 3 secciones con tabla
-    (principal, small caps, Trump trade), justo despues de su tabla resumen.
-    Cada ficha es un sub-punto del indice (nivel 1, bajo la seccion de su
-    tabla) y va en pdf.unbreakable() para que un salto de pagina no la
-    deje partida a medias (cabecera en una pagina, texto suelto en la
-    siguiente). 'section_number' es el numero de la seccion principal (2, 3
-    o 4) para que la cabecera de cada ficha use la misma numeracion
-    jerarquica que el indice (ej. "2.1", "3.1") en vez de reiniciar en "1."
-    dentro de cada seccion, lo que antes no coincidia con el indice."""
-    for i, o in enumerate(entries, start=1):
+    calidad, bancos y descripcion), a DOS COLUMNAS (dos acciones por fila)
+    en vez de una unica columna a todo el ancho: aprovecha mejor el ancho
+    de la pagina en horizontal y dejaba mucho hueco en blanco al final de
+    cada hoja cuando una ficha no cabia entera. Se usa en las 3 secciones
+    con tabla (principal, small caps, Trump trade), justo despues de su
+    tabla resumen. Cada pareja de fichas va en un unico pdf.unbreakable()
+    para que un salto de pagina mueva las DOS juntas a la siguiente hoja
+    (nunca solo una), y para que ambas arranquen a la misma altura.
+    'section_number' es el numero de la seccion principal (2, 3 o 4) para
+    que la cabecera de cada ficha use la misma numeracion jerarquica que
+    el indice (ej. "2.1", "3.1")."""
+    col_gap = 10
+    col_width = (pdf.epw - col_gap) / 2
+    col_x = [pdf.l_margin, pdf.l_margin + col_width + col_gap]
+
+    for pair_start in range(0, len(entries), 2):
+        pair = entries[pair_start:pair_start + 2]
         with pdf.unbreakable() as blk:
-            blk.start_section(sanitize(o["symbol"]), level=1)
-            blk.set_font("Helvetica", size=12, style="B")
-            blk.set_x(pdf.l_margin)
-            header = f"{section_number}.{i} {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
-            theme = theme_map.get(o["symbol"], "") if theme_map else ""
-            if theme:
-                header += f" - {theme}"
-            blk.cell(0, 8, sanitize(header), new_x="LMARGIN", new_y="NEXT")
-
-            blk.set_font("Helvetica", size=9)
-            blk.set_text_color(*NAVY)  # lineas con enlace al glosario
-            blk.set_x(pdf.l_margin)
-            price_txt = f"{fmt_es(o['current_price'])} {o['currency']}" if o["current_price"] else "n/d"
-            target_txt = f"{fmt_es(o['target_price'])} {o['currency']}" if o["target_price"] else "n/d"
-            upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
-            blk.cell(
-                0, 6,
-                sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
-                link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
-            )
-
-            blk.set_x(pdf.l_margin)
-            pe_txt = fmt_es(o["pe"], 1) if o["pe"] else "n/d"
-            sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
-            blk.cell(
-                0, 6,
-                sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
-                link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
-            )
-
-            # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
-            # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
-            growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
-            growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
-            rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
-            blk.set_x(pdf.l_margin)
-            blk.cell(
-                0, 6,
-                sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
-                link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
-            )
-
-            roe_txt = fmt_pct(o["roe"] * 100) if o["roe"] is not None else "n/d"
-            margin_txt = fmt_pct(o["operating_margin"] * 100) if o["operating_margin"] is not None else "n/d"
-            sector_margin_txt = fmt_pct(o["sector_avg_margin"] * 100) if o.get("sector_avg_margin") else "n/d"
-            debt_txt = fmt_es(o["debt_to_equity"], 0) if o["debt_to_equity"] is not None else "n/d"
-            liquidity_txt = fmt_es(o["current_ratio"], 2) if o["current_ratio"] is not None else "n/d"
-            blk.set_x(pdf.l_margin)
-            blk.multi_cell(
-                pdf.epw, 6,
-                sanitize(
-                    f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
-                    f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
-                    f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
-                ),
-                link=glossary_links["Calidad"], align="L",
-            )
-
-            banks = o.get("strong_buy_banks") or []
-            banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
-            blk.set_x(pdf.l_margin)
-            blk.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
-            blk.ln(6)
-            blk.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
-            blk.set_x(pdf.l_margin)
-            blk.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
-
-            blk.set_x(pdf.l_margin)
-            description = o.get("description_es") or "Sin descripcion disponible."
-            blk.multi_cell(pdf.epw, 5, sanitize(description), align="L")
-            blk.ln(4)
+            y0 = blk.y
+            end_ys = []
+            for col, o in enumerate(pair):
+                i = pair_start + col + 1
+                theme = theme_map.get(o["symbol"], "") if theme_map else ""
+                blk.set_xy(col_x[col], y0)
+                _render_ficha(blk, col_x[col], col_width, i, o, glossary_links, section_number, theme)
+                end_ys.append(blk.y)
+            blk.set_y(max(end_ys))
 
 
 def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
@@ -1336,6 +1360,29 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # pagina en blanco de mas en cada informe.
     pdf.start_section("Panorama de mercado")
     section_header(pdf, "Seccion 1", "1. Panorama de mercado")
+
+    disclaimer_text = (
+        "Informe generado por IA de forma automatica, basado en datos publicos "
+        "(Yahoo Finance, SEC EDGAR y, opcionalmente, Financial Modeling Prep). No "
+        "constituye asesoramiento financiero ni recomendacion de inversion "
+        "personalizada. El diseño de este documento esta inspirado, con fines de "
+        "legibilidad, en el formato habitual de una carta/nota de analisis "
+        "financiero; no es una publicacion real de J.P. Morgan Chase & Co., ING, "
+        "Value School ni de ninguna otra entidad financiera regulada, ni esta "
+        "afiliado, respaldado o revisado por ellas."
+    )
+    pdf.set_font("Helvetica", size=7.5)
+    disclaimer_h = pdf.multi_cell(pdf.epw, 4, disclaimer_text, align="L", dry_run=True, output="HEIGHT")
+    # El bloque (subtitulo + graficas + aviso legal) se centra en el hueco
+    # que queda bajo la cabecera, en vez de quedarse pegado arriba con un
+    # hueco enorme al final de la pagina: se mide su altura total y se
+    # reparte la mitad del sobrante como margen superior.
+    subtitle_gap = 6
+    chart_block_h = 85
+    line_gap = 4
+    content_h = 6 + subtitle_gap + chart_block_h + line_gap + disclaimer_h
+    center_in_remaining_page(pdf, content_h)
+
     pdf.set_font("Helvetica", size=9, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(
@@ -1344,51 +1391,44 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         new_x="LMARGIN", new_y="NEXT",
     )
     pdf.set_text_color(*INK)
-    pdf.ln(6)
+    pdf.ln(subtitle_gap)
 
-    recommendation_counts: Counter = Counter(o["recommendation"] for o in top)
+    top_sector_counts: Counter = Counter(o["sector"] or "n/a" for o in top)
     col_w = pdf.epw / 3
     y0 = pdf.get_y()
     render_pie_block(pdf, pdf.l_margin, col_w - 6, y0, "Mercados - todas las acciones analizadas", dict(coverage.most_common()))
     render_pie_block(pdf, pdf.l_margin + col_w, col_w - 6, y0, f"Mercados - Top {len(top)}", dict(top_coverage.most_common()))
-    render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Recomendacion - Top {len(top)}", dict(recommendation_counts.most_common()))
-    pdf.set_y(y0 + 85)
+    render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Sectores - Top {len(top)}", dict(top_sector_counts.most_common()))
+    pdf.set_y(y0 + chart_block_h)
 
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.3)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
-    pdf.ln(4)
+    pdf.ln(line_gap)
     pdf.set_font("Helvetica", size=7.5)
     pdf.set_text_color(*BODY_GRAY)
     pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(
-        pdf.epw, 4,
-        "Informe generado por IA de forma automatica, basado en datos publicos "
-        "(Yahoo Finance, SEC EDGAR y, opcionalmente, Financial Modeling Prep). No "
-        "constituye asesoramiento financiero ni recomendacion de inversion "
-        "personalizada. El diseño de este documento esta inspirado, con fines de "
-        "legibilidad, en el formato habitual de una carta/nota de analisis "
-        "financiero; no es una publicacion real de J.P. Morgan Chase & Co., ING, "
-        "Value School ni de ninguna otra entidad financiera regulada, ni esta "
-        "afiliado, respaldado o revisado por ellas.",
-        align="L",
-    )
+    pdf.multi_cell(pdf.epw, 4, disclaimer_text, align="L")
     pdf.set_text_color(*INK)
 
-    # --- Seccion 2: Tabla 10 principales acciones ---
+    # --- Seccion 2: Principales acciones ---
     pdf.page_background = SECTION2_BG
     pdf.add_page()
-    pdf.start_section("Tabla 10 principales acciones")
-    section_header(pdf, "Seccion 2", "2. Tabla 10 principales acciones")
+    pdf.start_section("Principales acciones")
+    section_header(pdf, "Seccion 2", "2. Principales acciones")
+    center_in_remaining_page(pdf, 6)
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
-    ensure_table_fits(pdf, len(top))
+    # La tabla siempre en su propia hoja (no comparte pagina con el
+    # parrafo de arriba) y las fichas detalladas empiezan en la(s)
+    # siguiente(s) hoja(s), no pegadas justo debajo de la tabla.
+    pdf.add_page()
     render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
-    pdf.ln(4)
+    pdf.add_page()
     render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
 
     # --- Seccion 3: Empresas de pequeña capitalizacion ---
@@ -1401,28 +1441,29 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
     section_header(pdf, "Seccion 3", f"3. Empresas de pequeña capitalizacion (Top {len(top_small)})")
-    pdf.set_font("Helvetica", size=8, style="I")
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.multi_cell(
-        pdf.epw, 5,
-        sanitize(
-            f"Mismos criterios de la seccion 1, aplicados solo a acciones con "
-            f"capitalizacion de mercado por debajo de "
-            f"{SMALL_CAP_MAX / 1_000_000_000:.0f}.000 millones de USD "
-            f"({n_small_cap} de las {len(rows)} acciones analizadas). Ojo: suelen "
-            f"tener mucha menos cobertura de analistas (columna # Analistas) que "
-            f"las grandes tecnologicas del resto del informe, lo que hace menos "
-            f"fiables el 'Crecim.' y la 'Recomendacion' (ver Glosario), y suelen "
-            f"tener mayor volatilidad y menor liquidez."
-        ),
-        align="L",
+    small_cap_intro = sanitize(
+        f"Mismos criterios de la seccion 1, aplicados solo a acciones con "
+        f"capitalizacion de mercado por debajo de "
+        f"{SMALL_CAP_MAX / 1_000_000_000:.0f}.000 millones de USD "
+        f"({n_small_cap} de las {len(rows)} acciones analizadas). Ojo: suelen "
+        f"tener mucha menos cobertura de analistas (columna # Analistas) que "
+        f"las grandes tecnologicas del resto del informe, lo que hace menos "
+        f"fiables el 'Crecim.' y la 'Recomendacion' (ver Glosario), y suelen "
+        f"tener mayor volatilidad y menor liquidez."
     )
+    pdf.set_font("Helvetica", size=8, style="I")
+    small_cap_intro_h = pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L", dry_run=True, output="HEIGHT")
+    center_in_remaining_page(pdf, small_cap_intro_h)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.multi_cell(pdf.epw, 5, small_cap_intro, align="L")
     pdf.set_text_color(*INK)
     pdf.ln(3)
     if top_small:
-        ensure_table_fits(pdf, len(top_small))
+        # La tabla siempre en su propia hoja y las fichas empiezan en la(s)
+        # siguiente(s), igual que en la Seccion 2.
+        pdf.add_page()
         render_summary_table(pdf, top_small, glossary_links, section_bg=SECTION3_BG)
-        pdf.ln(4)
+        pdf.add_page()
         render_detailed_descriptions(pdf, top_small, glossary_links, section_number=3)
     else:
         pdf.set_font("Helvetica", size=9)
@@ -1433,28 +1474,29 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
     section_header(pdf, "Seccion 4", "4. Cesta tematica 'Trump trade'")
-    pdf.set_font("Helvetica", size=8, style="I")
-    pdf.set_text_color(*BODY_GRAY)
-    pdf.multi_cell(
-        pdf.epw, 5,
-        sanitize(
-            "Esta seccion NO es el patrimonio personal de Donald Trump ni sale de "
-            "ningun informe de activos declarado. Es una cesta tematica de acciones "
-            "que la prensa financiera (Goldman Sachs, Kiplinger, Bloomberg, "
-            "Investing.com, entre otros) asocia repetidamente con politicas de su "
-            "administracion (aranceles, defensa, desregulacion, energia, cripto, "
-            "inmigracion). Son tesis especulativas, sensibles a titulares y pueden "
-            "revertirse de un dia para otro (ver detalle y ejemplo en el Glosario, "
-            "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
-            "venta."
-        ),
-        align="L",
+    trump_intro = sanitize(
+        "Esta seccion NO es el patrimonio personal de Donald Trump ni sale de "
+        "ningun informe de activos declarado. Es una cesta tematica de acciones "
+        "que la prensa financiera (Goldman Sachs, Kiplinger, Bloomberg, "
+        "Investing.com, entre otros) asocia repetidamente con politicas de su "
+        "administracion (aranceles, defensa, desregulacion, energia, cripto, "
+        "inmigracion). Son tesis especulativas, sensibles a titulares y pueden "
+        "revertirse de un dia para otro (ver detalle y ejemplo en el Glosario, "
+        "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
+        "venta."
     )
+    pdf.set_font("Helvetica", size=8, style="I")
+    trump_intro_h = pdf.multi_cell(pdf.epw, 5, trump_intro, align="L", dry_run=True, output="HEIGHT")
+    center_in_remaining_page(pdf, trump_intro_h)
+    pdf.set_text_color(*BODY_GRAY)
+    pdf.multi_cell(pdf.epw, 5, trump_intro, align="L")
     pdf.set_text_color(*INK)
     pdf.ln(3)
-    ensure_table_fits(pdf, len(top_trump))
+    # La tabla siempre en su propia hoja y las fichas empiezan en la(s)
+    # siguiente(s), igual que en las secciones 2 y 3.
+    pdf.add_page()
     render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG)
-    pdf.ln(4)
+    pdf.add_page()
     render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
@@ -1514,7 +1556,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     for name in glossary_links:
         pdf.set_link(glossary_links[name], page=glossary_page)
 
-    out_path = os.path.join(os.path.dirname(__file__), "informe.pdf")
+    out_path = os.path.join(os.path.dirname(__file__), f"InformeFinanciero_{datetime.now():%d-%m-%Y}.pdf")
     pdf.output(out_path)
     return out_path
 
