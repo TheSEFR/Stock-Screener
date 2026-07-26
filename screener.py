@@ -691,7 +691,7 @@ GLOSSARY = [
                       "capitalizacion' en la seccion 2 de este informe "
                       f"(por debajo de {SMALL_CAP_MAX / 1_000_000_000:.0f}.000 "
                       "millones de USD)."),
-    ("# Analistas", "Numero de analistas de bancos/brokers que Yahoo Finance "
+    ("Analistas", "Numero de analistas de bancos/brokers que Yahoo Finance "
                      "contabiliza cubriendo esa accion (campo "
                      "numberOfAnalystOpinions). Cuantos menos analistas, "
                      "menos fiables son 'Crecim.' y 'Recomendacion': se "
@@ -840,9 +840,14 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
-SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "# Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
-SUMMARY_WIDTHS = (7, 16, 15, 18, 16, 20, 24, 14, 14, 12, 14, 11, 11, 13, 17, 24)
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
+SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
+# Precio/P.Objetivo ensanchadas: numeros largos en formato español (ej. el
+# precio de Samsung, "249.500,00") se partian en dos lineas con el ancho
+# anterior. "Analistas" (antes "# Analistas") ya no necesita tanto sitio
+# al quitarle el "#" (que además se partia en su propia linea, con
+# "Analistas" debajo, pareciendo un corchete).
+SUMMARY_WIDTHS = (7, 16, 20, 19, 16, 20, 20, 12, 14, 12, 14, 11, 11, 13, 17, 24)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
@@ -901,6 +906,16 @@ def render_pie_block(pdf: FPDF, x: float, width: float, y: float, title: str, da
     pdf.set_text_color(*INK)
 
 
+def ensure_table_fits(pdf: FPDF, n_rows: int) -> None:
+    """Salto de pagina previo si la tabla resumen (cabecera + n_rows) no va
+    a caber entera en lo que queda de pagina, para que nunca quede partida
+    entre dos paginas. Estimacion generosa (11mm/fila) porque algunas
+    celdas envuelven a 2 lineas (ej. sectores largos, 'COMPRA NEUTRAL')."""
+    estimated_height = 14 + n_rows * 11
+    if pdf.get_y() + estimated_height > pdf.h - pdf.b_margin:
+        pdf.add_page()
+
+
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.
@@ -947,78 +962,84 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -
 def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links: dict, theme_map: dict | None = None) -> None:
     """Ficha detallada por accion (precio/objetivo, P/E, crecimiento,
     calidad, bancos y descripcion). Se usa en las 3 secciones con tabla
-    (principal, small caps, Trump trade), justo despues de su tabla resumen."""
+    (principal, small caps, Trump trade), justo despues de su tabla resumen.
+    Cada ficha es un sub-punto del indice (nivel 1, bajo la seccion de su
+    tabla) y va en pdf.unbreakable() para que un salto de pagina no la
+    deje partida a medias (cabecera en una pagina, texto suelto en la
+    siguiente)."""
     for i, o in enumerate(entries, start=1):
-        pdf.set_font("Helvetica", size=12, style="B")
-        pdf.set_x(pdf.l_margin)
-        header = f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
-        theme = theme_map.get(o["symbol"], "") if theme_map else ""
-        if theme:
-            header += f" - {theme}"
-        pdf.cell(0, 8, sanitize(header), new_x="LMARGIN", new_y="NEXT")
+        with pdf.unbreakable() as blk:
+            blk.start_section(sanitize(o["symbol"]), level=1)
+            blk.set_font("Helvetica", size=12, style="B")
+            blk.set_x(pdf.l_margin)
+            header = f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
+            theme = theme_map.get(o["symbol"], "") if theme_map else ""
+            if theme:
+                header += f" - {theme}"
+            blk.cell(0, 8, sanitize(header), new_x="LMARGIN", new_y="NEXT")
 
-        pdf.set_font("Helvetica", size=9)
-        pdf.set_text_color(*NAVY)  # lineas con enlace al glosario
-        pdf.set_x(pdf.l_margin)
-        price_txt = f"{fmt_es(o['current_price'])} {o['currency']}" if o["current_price"] else "n/d"
-        target_txt = f"{fmt_es(o['target_price'])} {o['currency']}" if o["target_price"] else "n/d"
-        upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
-        pdf.cell(
-            0, 6,
-            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
-            link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
-        )
+            blk.set_font("Helvetica", size=9)
+            blk.set_text_color(*NAVY)  # lineas con enlace al glosario
+            blk.set_x(pdf.l_margin)
+            price_txt = f"{fmt_es(o['current_price'])} {o['currency']}" if o["current_price"] else "n/d"
+            target_txt = f"{fmt_es(o['target_price'])} {o['currency']}" if o["target_price"] else "n/d"
+            upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
+            blk.cell(
+                0, 6,
+                sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
+                link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
+            )
 
-        pdf.set_x(pdf.l_margin)
-        pe_txt = fmt_es(o["pe"], 1) if o["pe"] else "n/d"
-        sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
-        pdf.cell(
-            0, 6,
-            sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
-            link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
-        )
+            blk.set_x(pdf.l_margin)
+            pe_txt = fmt_es(o["pe"], 1) if o["pe"] else "n/d"
+            sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
+            blk.cell(
+                0, 6,
+                sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
+                link=glossary_links["P/E"], new_x="LMARGIN", new_y="NEXT",
+            )
 
-        # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
-        # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
-        growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
-        growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
-        rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(
-            0, 6,
-            sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
-            link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
-        )
+            # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
+            # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
+            growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
+            growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
+            rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
+            blk.set_x(pdf.l_margin)
+            blk.cell(
+                0, 6,
+                sanitize(f"Crecim.: {growth_txt}{growth_note} | Recomendacion: {o['recommendation']}{rec_note}"),
+                link=glossary_links["Crecim."], new_x="LMARGIN", new_y="NEXT",
+            )
 
-        roe_txt = fmt_pct(o["roe"] * 100) if o["roe"] is not None else "n/d"
-        margin_txt = fmt_pct(o["operating_margin"] * 100) if o["operating_margin"] is not None else "n/d"
-        sector_margin_txt = fmt_pct(o["sector_avg_margin"] * 100) if o.get("sector_avg_margin") else "n/d"
-        debt_txt = fmt_es(o["debt_to_equity"], 0) if o["debt_to_equity"] is not None else "n/d"
-        liquidity_txt = fmt_es(o["current_ratio"], 2) if o["current_ratio"] is not None else "n/d"
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(
-            pdf.epw, 6,
-            sanitize(
-                f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
-                f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
-                f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
-            ),
-            link=glossary_links["Calidad"], align="L",
-        )
+            roe_txt = fmt_pct(o["roe"] * 100) if o["roe"] is not None else "n/d"
+            margin_txt = fmt_pct(o["operating_margin"] * 100) if o["operating_margin"] is not None else "n/d"
+            sector_margin_txt = fmt_pct(o["sector_avg_margin"] * 100) if o.get("sector_avg_margin") else "n/d"
+            debt_txt = fmt_es(o["debt_to_equity"], 0) if o["debt_to_equity"] is not None else "n/d"
+            liquidity_txt = fmt_es(o["current_ratio"], 2) if o["current_ratio"] is not None else "n/d"
+            blk.set_x(pdf.l_margin)
+            blk.multi_cell(
+                pdf.epw, 6,
+                sanitize(
+                    f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
+                    f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
+                    f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
+                ),
+                link=glossary_links["Calidad"], align="L",
+            )
 
-        banks = o.get("strong_buy_banks") or []
-        banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
-        pdf.ln(6)
-        pdf.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
+            banks = o.get("strong_buy_banks") or []
+            banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
+            blk.set_x(pdf.l_margin)
+            blk.cell(0, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
+            blk.ln(6)
+            blk.set_text_color(*INK)  # fin de las lineas con enlace, vuelve el texto normal
+            blk.set_x(pdf.l_margin)
+            blk.multi_cell(pdf.epw, 5, sanitize(banks_txt), align="L")
 
-        pdf.set_x(pdf.l_margin)
-        description = o.get("description_es") or "Sin descripcion disponible."
-        pdf.multi_cell(pdf.epw, 5, sanitize(description), align="L")
-        pdf.ln(4)
+            blk.set_x(pdf.l_margin)
+            description = o.get("description_es") or "Sin descripcion disponible."
+            blk.multi_cell(pdf.epw, 5, sanitize(description), align="L")
+            blk.ln(4)
 
 
 def render_toc(pdf: FPDF, outline) -> None:
@@ -1035,15 +1056,31 @@ def render_toc(pdf: FPDF, outline) -> None:
     pdf.set_line_width(0.3)
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(8)
-    pdf.set_font("Helvetica", size=12)
-    for i, section in enumerate(outline, start=1):
+    # Numeracion jerarquica: un punto principal (1, 2, 3...) por cada
+    # seccion/tabla, y un subpunto (2.1, 2.2...) por cada accion dentro de
+    # ella -- en vez de una lista plana con todo al mismo nivel.
+    main_i = 0
+    sub_i = 0
+    for section in outline:
         link = pdf.add_link(page=section.page_number)
-        indent = "    " * section.level
+        if section.level == 0:
+            main_i += 1
+            sub_i = 0
+            label = f"{main_i}."
+            pdf.set_font("Helvetica", size=12)
+            row_h = 9
+            indent = ""
+        else:
+            sub_i += 1
+            label = f"{main_i}.{sub_i}"
+            pdf.set_font("Helvetica", size=10)
+            row_h = 6.5
+            indent = "    "
         pdf.set_x(pdf.l_margin)
         pdf.set_text_color(*NAVY)
         pdf.cell(
-            0, 10,
-            sanitize(f"{indent}{i}. {section.name}  ...  pag. {section.page_number}"),
+            0, row_h,
+            sanitize(f"{indent}{label} {section.name}  ...  pag. {section.page_number}"),
             new_x="LMARGIN", new_y="NEXT", link=link,
         )
     pdf.set_text_color(*INK)
@@ -1072,47 +1109,41 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: al estilo "carta anual" (logo arriba a la izquierda,
-    # titular grande, credito + logo pequeño abajo), a peticion del usuario
-    # tras enseñar la portada de la carta de Buffett editada por ING/Value
-    # School como referencia. NO es una plantilla real de JPMorgan, ING ni
-    # de ningun otro banco: ver clausula de no afiliacion en la pagina
-    # siguiente. Logo grande solo aqui (paginas interiores llevan la
-    # version pequeña via header()).
+    # --- Portada: composicion centrada (logo, titular y subtitulo), con
+    # la firma en grande alineada a la derecha al pie de pagina. NO es una
+    # plantilla real de JPMorgan, ING ni de ningun otro banco: ver clausula
+    # de no afiliacion en la pagina siguiente. Logo grande solo aqui
+    # (paginas interiores llevan la version pequeña via header()).
     pdf.add_page()
     if os.path.exists(SEF_LOGO_PATH):
-        pdf.image(SEF_LOGO_PATH, x=pdf.l_margin, y=12, w=20, h=20)
+        logo_big = 28
+        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_big) / 2, y=18, w=logo_big, h=logo_big)
 
-    pdf.set_y(95)
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=34, style="B")
+    pdf.set_y(56)
+    pdf.set_font("Helvetica", size=9, style="B")
     pdf.set_text_color(*NAVY)
-    pdf.cell(0, 14, "Informe de acciones", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin + 22)
-    pdf.cell(0, 14, "para tu watchlist", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=16, style="B")
+    pdf.set_font("Helvetica", size=32, style="B")
+    pdf.cell(0, 14, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=24, style="B")
+    pdf.cell(0, 12, "para tu watchlist", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
-    pdf.cell(0, 9, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), new_x="LMARGIN", new_y="NEXT")
 
-    # Credito + logo pequeño abajo a la izquierda (estilo "Edicion a cargo de").
-    pdf.set_y(-45)
+    # Firma grande, alineada a la derecha, al pie de la portada.
+    pdf.set_y(-52)
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9)
     pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 6, "Informe realizado por", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(1)
-    if os.path.exists(SEF_LOGO_PATH):
-        pdf.image(SEF_LOGO_PATH, x=pdf.l_margin, y=pdf.get_y(), w=8, h=8)
-    pdf.set_xy(pdf.l_margin + 10, pdf.get_y() + 1)
-    pdf.set_font("Helvetica", size=11, style="B")
+    pdf.cell(pdf.epw, 6, "Informe realizado por", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=28, style="B")
     pdf.set_text_color(*NAVY)
-    pdf.cell(0, 6, "SEF-FINANCIAL", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin + 10)
-    pdf.set_font("Helvetica", size=8)
+    pdf.cell(pdf.epw, 13, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=9)
     pdf.set_text_color(*BODY_GRAY)
-    pdf.cell(0, 5, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(pdf.epw, 6, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
 
     # --- Indice (pagina reservada, se rellena sola al final) ---
@@ -1172,6 +1203,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
+    ensure_table_fits(pdf, len(top))
     render_summary_table(pdf, top, glossary_links)
     pdf.ln(4)
     render_detailed_descriptions(pdf, top, glossary_links)
@@ -1201,6 +1233,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
     pdf.ln(3)
     if top_small:
+        ensure_table_fits(pdf, len(top_small))
         render_summary_table(pdf, top_small, glossary_links)
         pdf.ln(4)
         render_detailed_descriptions(pdf, top_small, glossary_links)
@@ -1231,6 +1264,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     )
     pdf.set_text_color(*INK)
     pdf.ln(3)
+    ensure_table_fits(pdf, len(top_trump))
     render_summary_table(pdf, top_trump, glossary_links)
     pdf.ln(4)
     render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
