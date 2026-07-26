@@ -584,7 +584,16 @@ GLOSSARY = [
                 "Si Yahoo no tenia cobertura suficiente, este informe intenta "
                 "rellenarlo con Financial Modeling Prep (FMP) como respaldo "
                 "opcional; en ese caso se marca '(via FMP)' junto a la cifra "
-                "en la seccion de descripcion detallada."),
+                "en la seccion de descripcion detallada. "
+                "HORIZONTE TEMPORAL: por convencion, este tipo de estimacion "
+                "de consenso suele referirse al PROXIMO AÑO FISCAL (un año "
+                "vista, no una proyeccion a varios años), igual que ocurre "
+                "con 'P.Objetivo' mas abajo. Aviso: ni Yahoo ni yfinance "
+                "documentan publicamente el horizonte exacto de este campo "
+                "concreto, asi que esto es la convencion mas probable, no "
+                "una certeza verificada al 100%. Un 60% de crecimiento no "
+                "significa lo mismo si es a 1 año que si fuera a 10: trata "
+                "esta cifra siempre como una estimacion a ~1 año."),
     ("Insider buy", "Si algun directivo o accionista relevante compro "
                      "acciones con su propio dinero en los ultimos 90 dias. "
                      "Fuente primaria: SEC EDGAR (comunicados Form 4 "
@@ -626,13 +635,20 @@ GLOSSARY = [
                    "que 'Crecim.' y 'Recomendacion'). Igual que esos "
                    "campos, depende de la cobertura de analistas: mas "
                    "fiable con mucha cobertura, mas ruidoso o ausente (n/d) "
-                   "con poca. NO es una prediccion propia de este informe."),
+                   "con poca. NO es una prediccion propia de este informe. "
+                   "HORIZONTE TEMPORAL: por convencion de Wall Street, un "
+                   "'price target' de analista es casi siempre a ~12 MESES "
+                   "vista (salvo que la nota del analista diga lo "
+                   "contrario explicitamente) — no es una proyeccion a 5 o "
+                   "10 años. El 'Potencial' de mas abajo hereda este mismo "
+                   "horizonte de ~1 año."),
     ("Potencial", "Diferencia porcentual entre 'P.Objetivo' y 'Precio': "
                   "cuanto subiria (o bajaria) la accion si alcanzase el "
-                  "precio objetivo de consenso. Positivo no garantiza "
-                  "subida real, es solo la distancia a la expectativa "
-                  "actual de los analistas, con las mismas limitaciones de "
-                  "cobertura que 'P.Objetivo'."),
+                  "precio objetivo de consenso EN ~12 MESES (ver horizonte "
+                  "temporal en 'P.Objetivo'). Positivo no garantiza subida "
+                  "real, es solo la distancia a la expectativa actual de "
+                  "los analistas a un año vista, con las mismas "
+                  "limitaciones de cobertura que 'P.Objetivo'."),
     ("Cap.", "Capitalizacion bursatil (precio de la accion x numero "
                       "de acciones en circulacion), segun Yahoo Finance. Se "
                       "usa para clasificar una accion como 'pequeña "
@@ -967,7 +983,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         upside_txt = f" ({o['upside'] * 100:+.1f}%)" if o["upside"] is not None else ""
         pdf.cell(
             0, 6,
-            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo (consenso analistas): {target_txt}{upside_txt}"),
+            sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
             link=glossary_links["Precio"], new_x="LMARGIN", new_y="NEXT",
         )
 

@@ -109,6 +109,13 @@ EEUU) suele ser una cifra robusta; con poca o ninguna cobertura (típico en
 small/micro caps, o en acciones poco seguidas fuera de EEUU) puede estar
 desactualizada, basada en muy pocas estimaciones, o no existir.
 
+**¿Para qué fecha es ese crecimiento?** Por convención, esta cifra suele
+referirse al **próximo año fiscal** (~1 año vista), igual que el "Precio
+objetivo" (ver más abajo) — un 60% de crecimiento no significa lo mismo a 1
+año que a 10. Eso sí: ni Yahoo ni yfinance documentan públicamente el
+horizonte exacto de este campo concreto, así que es la convención más
+probable, no una certeza verificada al 100%.
+
 El Top 10 (general) y el Top 5 (pequeña capitalización) con mayor score son
 los que se incluyen en el informe. En caso de empate en el score, desempata
 el **factor de Calidad** (ver más abajo) antes que el PEG.
@@ -251,8 +258,8 @@ Ambos workflows también se pueden lanzar manualmente desde la pestaña
 |---|---|
 | **Score** | Aciertos sobre criterios aplicables para ese ticker (ver [criterios del ranking](#criterios-del-ranking)). |
 | **Precio** | Precio actual en el momento en que se generó ESE informe (no un valor fijo), en la divisa local del ticker (ver columna "País" para contexto: USD, EUR, KRW...). No convertido a una divisa común. |
-| **P.Objetivo** | Precio objetivo medio de consenso de analistas (`targetMeanPrice`), mismas limitaciones de cobertura que "Crecim." y "Recomendación". |
-| **Potencial** | Diferencia % entre "P.Objetivo" y "Precio". Positivo no garantiza subida real, solo indica la expectativa actual de los analistas. |
+| **P.Objetivo** | Precio objetivo medio de consenso de analistas (`targetMeanPrice`), mismas limitaciones de cobertura que "Crecim." y "Recomendación". **Horizonte: ~12 meses** (convención estándar de Wall Street para price targets, salvo que la nota del analista diga lo contrario), no una proyección a varios años. |
+| **Potencial** | Diferencia % entre "P.Objetivo" y "Precio" a ese mismo horizonte de ~12 meses. Positivo no garantiza subida real, solo indica la expectativa actual de los analistas a un año vista. |
 | **P/E** | Precio / beneficio por acción (trailing). Se compara contra el promedio de su mismo sector, no un promedio global. Como referencia general: por debajo de 15 se suele considerar barato, entre 15 y 25 razonable, por encima de 25-30 caro / de alto crecimiento. |
 | **PEG** | P/E dividido por el % de crecimiento esperado de beneficios. Por debajo de 1.5 sugiere que el precio no está sobrepagando ese crecimiento; por debajo de 1 se suele considerar barato. |
 | **Crecim.** | Crecimiento interanual esperado del EPS. Consenso de analistas vía Yahoo Finance (`earningsGrowth`), ver la explicación completa de su origen [más arriba](#criterios-del-ranking). |
