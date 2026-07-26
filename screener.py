@@ -791,7 +791,7 @@ def _red_shade(t: float) -> tuple[int, int, int]:
 
 _RED_SCALE = [_red_shade(i / 4) for i in range(5)]
 RED_FULL_BG = _RED_SCALE[0]  # Seccion 1: Panorama de mercado
-RED_DARK_BG = _RED_SCALE[1]  # Seccion 2: Tabla resumen (Top 10)
+RED_DARK_BG = _RED_SCALE[1]  # Seccion 2: Tabla 10 principales acciones
 RED_MID_BG = _RED_SCALE[2]  # Seccion 3: Empresas de pequeña capitalizacion
 RED_SOFT_BG = _RED_SCALE[3]  # Seccion 4: Cesta tematica "Trump trade"
 RED_SOFTEST_BG = _RED_SCALE[4]  # Seccion 5 y 6: Noticias / Glosario
@@ -986,20 +986,23 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -
             row.cell(o["recommendation"])
 
 
-def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links: dict, theme_map: dict | None = None) -> None:
+def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links: dict, section_number: int, theme_map: dict | None = None) -> None:
     """Ficha detallada por accion (precio/objetivo, P/E, crecimiento,
     calidad, bancos y descripcion). Se usa en las 3 secciones con tabla
     (principal, small caps, Trump trade), justo despues de su tabla resumen.
     Cada ficha es un sub-punto del indice (nivel 1, bajo la seccion de su
     tabla) y va en pdf.unbreakable() para que un salto de pagina no la
     deje partida a medias (cabecera en una pagina, texto suelto en la
-    siguiente)."""
+    siguiente). 'section_number' es el numero de la seccion principal (2, 3
+    o 4) para que la cabecera de cada ficha use la misma numeracion
+    jerarquica que el indice (ej. "2.1", "3.1") en vez de reiniciar en "1."
+    dentro de cada seccion, lo que antes no coincidia con el indice."""
     for i, o in enumerate(entries, start=1):
         with pdf.unbreakable() as blk:
             blk.start_section(sanitize(o["symbol"]), level=1)
             blk.set_font("Helvetica", size=12, style="B")
             blk.set_x(pdf.l_margin)
-            header = f"{i}. {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
+            header = f"{section_number}.{i} {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
             theme = theme_map.get(o["symbol"], "") if theme_map else ""
             if theme:
                 header += f" - {theme}"
@@ -1084,7 +1087,7 @@ def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
     def section(name: str, level: int) -> OutlineSection:
         return OutlineSection(name=name, level=level, page_number=1, dest=None)
 
-    fake_outline = [section("Panorama de mercado", 0), section("Tabla resumen (Top 10)", 0)]
+    fake_outline = [section("Panorama de mercado", 0), section("Tabla 10 principales acciones", 0)]
     fake_outline += [section(f"T{i}", 1) for i in range(n_top)]
     fake_outline.append(section("Empresas de pequeña capitalizacion", 0))
     fake_outline += [section(f"S{i}", 1) for i in range(n_small)]
@@ -1329,11 +1332,11 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     )
     pdf.set_text_color(*INK)
 
-    # --- Seccion 2: Tabla resumen ---
+    # --- Seccion 2: Tabla 10 principales acciones ---
     pdf.page_background = RED_DARK_BG
     pdf.add_page()
-    pdf.start_section("Tabla resumen (Top 10)")
-    section_header(pdf, "Seccion 2", "Tabla resumen (Top 10)")
+    pdf.start_section("Tabla 10 principales acciones")
+    section_header(pdf, "Seccion 2", "Tabla 10 principales acciones")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
@@ -1342,7 +1345,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     ensure_table_fits(pdf, len(top))
     render_summary_table(pdf, top, glossary_links)
     pdf.ln(4)
-    render_detailed_descriptions(pdf, top, glossary_links)
+    render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
 
     # --- Seccion 3: Empresas de pequeña capitalizacion ---
     # Fondo de pagina propio para diferenciarla a simple vista (se aplica a
@@ -1376,7 +1379,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         ensure_table_fits(pdf, len(top_small))
         render_summary_table(pdf, top_small, glossary_links)
         pdf.ln(4)
-        render_detailed_descriptions(pdf, top_small, glossary_links)
+        render_detailed_descriptions(pdf, top_small, glossary_links, section_number=3)
     else:
         pdf.set_font("Helvetica", size=9)
         pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
@@ -1408,7 +1411,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     ensure_table_fits(pdf, len(top_trump))
     render_summary_table(pdf, top_trump, glossary_links)
     pdf.ln(4)
-    render_detailed_descriptions(pdf, top_trump, glossary_links, theme_map=TRUMP_TRADE_THEMES)
+    render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
     # El rojo mas suave de todos, igual que el Glosario (seccion 6): el
