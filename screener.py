@@ -1161,6 +1161,10 @@ def send_telegram_document(path: str, caption: str) -> None:
     # un token de Telegram nunca lleva espacios de verdad.
     token = "".join(os.environ["TELEGRAM_BOT_TOKEN"].split())
     chat_id = os.environ["TELEGRAM_CHAT_ID"].strip()
+    # No es sensible (un chat_id no autentica nada por si solo, hace falta
+    # el token del bot), asi que se puede loguear tal cual para depurar
+    # el "chat not found" sin adivinar si hay un error de tecleo.
+    print(f"TELEGRAM_CHAT_ID usado: {chat_id!r}")
     url = f"https://api.telegram.org/bot{token}/sendDocument"
     with open(path, "rb") as f:
         resp = requests.post(
