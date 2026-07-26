@@ -879,12 +879,10 @@ def section_header(pdf: FPDF, kicker: str, title: str) -> None:
     pdf.ln(4)
 
 
-# Aire alrededor de las fichas de una misma hoja (ver
-# render_detailed_descriptions): se usa el MISMO valor para el margen sobre
-# la primera ficha y para el hueco entre fichas, de modo que la separacion
-# entre subsecciones coincide con la de arriba. Es un tope: si sobra menos
-# hoja, se reparte lo que haya.
-MAX_FICHA_SPACING = 12
+# Tope del aire entre fichas de una misma hoja (ver
+# render_detailed_descriptions), para las paginas con muy pocas fichas y
+# mucho sobrante (si no, quedarian centradas con huecos enormes).
+MAX_FICHA_SPACING = 40
 
 # Tope de la altura de fila de las tablas resumen: con pocas filas, repartir
 # TODO el alto de la hoja entre ellas daria filas desproporcionadas.
@@ -1164,20 +1162,19 @@ def render_detailed_descriptions(pdf: FPDF, entries: list[dict], glossary_links:
     if current:
         groups.append(current)
 
-    # 3) Pintar cada grupo en su hoja separando las fichas entre si y de la
-    #    cabecera con el MISMO espacio (MAX_FICHA_SPACING como tope), para
-    #    que el hueco entre subsecciones coincida con el de arriba. Lo que
-    #    sobre de hoja se queda al pie.
+    # 3) Pintar cada grupo en su hoja, repartiendo el sobrante en
+    #    (numero de fichas + 1) partes iguales: una arriba, una entre cada
+    #    par de fichas, y una — sin dibujarla, simplemente sin usarla — al
+    #    pie de la hoja. Al reservar esa parte final en el propio calculo
+    #    (en vez de solo repartir arriba/entre y dejar lo que sobre sin
+    #    contar), el hueco de abajo sale igual al de arriba y al de enmedio.
     for group_i, group in enumerate(groups):
         if group_i > 0:
             pdf.add_page()
         group_h = sum(heights[idx] for idx in group)
-        n_gaps = len(group) - 1
         available_h = (pdf.h - pdf.b_margin) - pdf.y
         leftover = max(0.0, available_h - group_h)
-        # Mismo espacio sobre la primera ficha que entre fichas (n_gaps + 1
-        # huecos en total); lo que sobre se queda al pie de la hoja.
-        spacing = min(leftover / (n_gaps + 1), MAX_FICHA_SPACING)
+        spacing = min(leftover / (len(group) + 1), MAX_FICHA_SPACING)
         pdf.ln(spacing)
         for position, idx in enumerate(group):
             if position > 0:
