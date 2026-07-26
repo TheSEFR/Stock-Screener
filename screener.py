@@ -771,9 +771,14 @@ GLOSSARY = [
 INK = (0, 0, 0)
 BODY_GRAY = (90, 90, 90)
 HAIRLINE = (200, 205, 212)
-CANVAS_SOFT = (222, 232, 240)  # cabecera y franja "mas azul" de la zebra de tabla
-TABLE_BASE_BG = (240, 245, 249)  # franja "menos azul" de la zebra de tabla (nunca blanco puro)
 WHITE = (255, 255, 255)
+
+
+def _lighten(color: tuple[int, int, int], amount: float) -> tuple[int, int, int]:
+    """Aclara 'color' hacia blanco en la proporcion 'amount' (0=igual, 1=blanco)."""
+    return tuple(round(c + (255 - c) * amount) for c in color)
+
+
 NAVY = (0, 47, 94)  # acento unico: kickers, enlaces, cabecera de tablas y barra de portada
 # Paleta ciclica para las graficas circulares (seccion "Panorama de mercado"):
 # navy + el naranja del logo + un par de tonos neutros de apoyo.
@@ -811,6 +816,10 @@ def pe_verdict(pe: float | None) -> str:
 
 
 SEF_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "sef_logo.png")
+# GNU FreeFont (GPLv3 + font exception, incluye cobertura arabe con tablas
+# GSUB/GPOS): usada solo en la portada para la transliteracion fonetica
+# "SEF-Financial" en arabe, via el motor de shaping de fpdf2 (uharfbuzz).
+SEF_ARABIC_FONT_PATH = os.path.join(os.path.dirname(__file__), "assets", "FreeSerif.ttf")
 
 
 class ReportPDF(FPDF):
@@ -946,22 +955,27 @@ def ensure_table_fits(pdf: FPDF, n_rows: int) -> None:
         pdf.add_page()
 
 
-def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict) -> None:
+def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, section_bg: tuple[int, int, int]) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.
-    Zebra en dos tonos de azul (nunca blanco puro) y lineas finas
-    horizontales — mismo tratamiento en las 3 tablas del informe."""
+    Zebra en dos tonos de azul derivados del propio fondo de la seccion
+    ('section_bg', aclarado en dos proporciones distintas) en vez de un
+    gris fijo: asi la tabla encaja con el tono de cada seccion en vez de
+    verse como un bloque blanco pegado encima. Lineas finas horizontales
+    — mismo tratamiento en las 3 tablas del informe."""
     from fpdf.fonts import FontFace
 
-    pdf.set_fill_color(*TABLE_BASE_BG)  # ver nota en section_header sobre fill_color heredado
+    table_base_bg = _lighten(section_bg, 0.6)  # franja "menos azul"
+    table_stripe_bg = _lighten(section_bg, 0.35)  # franja "mas azul" (y cabecera)
+    pdf.set_fill_color(*table_base_bg)  # ver nota en section_header sobre fill_color heredado
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_font("Helvetica", size=8)
-    headings_style = FontFace(emphasis="B", color=INK, fill_color=CANVAS_SOFT)
+    headings_style = FontFace(emphasis="B", color=INK, fill_color=table_stripe_bg)
     with pdf.table(
         col_widths=SUMMARY_WIDTHS,
         text_align=SUMMARY_ALIGN,
         headings_style=headings_style,
-        cell_fill_color=CANVAS_SOFT,
+        cell_fill_color=table_stripe_bg,
         cell_fill_mode="EVEN_ROWS",
         borders_layout="HORIZONTAL_LINES",
     ) as table:
@@ -1207,9 +1221,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # (paginas interiores llevan la version pequeña via header()).
     pdf.page_background = PORTADA_BG
     pdf.add_page()
-    logo_size = 28
+    if os.path.exists(SEF_ARABIC_FONT_PATH):
+        pdf.add_font("FreeSerifArabic", "", SEF_ARABIC_FONT_PATH)
+    logo_size = 40
     kicker_h = 6
     title_line_h = 14
+    arabic_h = 8
+    gap_title_arabic = 2
     brand_h = 10
     credit_h = 5  # altura de cada linea de la firma, en columna (3 lineas)
     gap_logo_kicker = 6
@@ -1223,7 +1241,10 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.set_font("Helvetica", size=title_size, style="B")
     title_lines = 2 if pdf.get_string_width(title_text) > pdf.epw else 1
 
-    block_height = logo_size + gap_logo_kicker + kicker_h + gap_kicker_title + title_line_h * title_lines
+    block_height = (
+        logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
+        + title_line_h * title_lines + gap_title_arabic + arabic_h
+    )
     # Centrado sobre el alto completo de la pagina: al no incluir ya la
     # firma en este calculo (va aparte, anclada abajo mas adelante), este
     # bloque mas corto queda centrado mas abajo que antes.
@@ -1247,6 +1268,20 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.cell(0, title_line_h, "recomendadas", align="C", new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.cell(0, title_line_h, sanitize(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(gap_title_arabic)
+
+    # "SEF-Financial" tambien en arabe (transliteracion fonetica), como
+    # detalle bilingue bajo el titulo. set_text_shaping activa el motor de
+    # HarfBuzz (via uharfbuzz) para el trazado de derecha a izquierda y las
+    # formas contextuales del arabe; sin el, las letras saldrian sueltas y
+    # en el orden equivocado.
+    if os.path.exists(SEF_ARABIC_FONT_PATH):
+        pdf.set_font("FreeSerifArabic", size=13)
+        pdf.set_text_color(*NAVY)
+        pdf.set_text_shaping(True)
+        pdf.cell(0, arabic_h, "سيف فايننشال", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_shaping(False)
+        pdf.set_text_color(*INK)
 
     # Firma compacta, alineada a la derecha y anclada abajo (no pegada al
     # bloque de arriba, como antes).
@@ -1262,7 +1297,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=9)
     pdf.set_text_color(*INK)
-    pdf.cell(pdf.epw, credit_h, "Realizado por SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(pdf.epw, credit_h, "Realizado por SEF", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_x(pdf.l_margin)
     pdf.cell(pdf.epw, credit_h, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_x(pdf.l_margin)
@@ -1300,7 +1335,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # nueva (con el fondo ya aplicado, ver arriba); añadir otra generaba una
     # pagina en blanco de mas en cada informe.
     pdf.start_section("Panorama de mercado")
-    section_header(pdf, "Seccion 1", "Panorama de mercado")
+    section_header(pdf, "Seccion 1", "1. Panorama de mercado")
     pdf.set_font("Helvetica", size=9, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(
@@ -1345,14 +1380,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.page_background = SECTION2_BG
     pdf.add_page()
     pdf.start_section("Tabla 10 principales acciones")
-    section_header(pdf, "Seccion 2", "Tabla 10 principales acciones")
+    section_header(pdf, "Seccion 2", "2. Tabla 10 principales acciones")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
     ensure_table_fits(pdf, len(top))
-    render_summary_table(pdf, top, glossary_links)
+    render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
     pdf.ln(4)
     render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
 
@@ -1365,7 +1400,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # pagina anterior (la de la tabla), no a la de esta seccion.
     pdf.add_page()
     pdf.start_section("Empresas de pequeña capitalizacion")
-    section_header(pdf, "Seccion 3", f"Empresas de pequeña capitalizacion (Top {len(top_small)})")
+    section_header(pdf, "Seccion 3", f"3. Empresas de pequeña capitalizacion (Top {len(top_small)})")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1386,7 +1421,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.ln(3)
     if top_small:
         ensure_table_fits(pdf, len(top_small))
-        render_summary_table(pdf, top_small, glossary_links)
+        render_summary_table(pdf, top_small, glossary_links, section_bg=SECTION3_BG)
         pdf.ln(4)
         render_detailed_descriptions(pdf, top_small, glossary_links, section_number=3)
     else:
@@ -1397,7 +1432,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.page_background = SECTION4_BG
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
-    section_header(pdf, "Seccion 4", "Cesta tematica 'Trump trade'")
+    section_header(pdf, "Seccion 4", "4. Cesta tematica 'Trump trade'")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(
@@ -1418,7 +1453,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
     pdf.ln(3)
     ensure_table_fits(pdf, len(top_trump))
-    render_summary_table(pdf, top_trump, glossary_links)
+    render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG)
     pdf.ln(4)
     render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
 
@@ -1430,7 +1465,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.page_background = SECTION56_BG
     pdf.add_page()
     pdf.start_section("Noticias recientes")
-    section_header(pdf, "Seccion 5", "Noticias recientes (traducidas)")
+    section_header(pdf, "Seccion 5", "5. Noticias recientes")
     seen_symbols = set()
     for o in top + top_small + top_trump:
         if o["symbol"] in seen_symbols:
@@ -1467,7 +1502,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 6", "Glosario de variables")
+    section_header(pdf, "Seccion 6", "6. Glosario de variables")
     for name, explanation in GLOSSARY:
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)

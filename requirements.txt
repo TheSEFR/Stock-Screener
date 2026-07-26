@@ -4,3 +4,4 @@ python-dotenv
 pandas
 fpdf2
 deep-translator
+uharfbuzz
