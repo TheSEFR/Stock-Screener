@@ -45,3 +45,32 @@ TCEHY
 TSM
 SONY
 005930.KS
+
+# Pequeña/micro capitalizacion (EEUU) - candidatas a la seccion 2 del informe.
+# La clasificacion es dinamica (segun marketCap real de cada ejecucion), no
+# fija: si alguna crece por encima del umbral, sale de esa seccion sin tocar
+# el codigo.
+CLSK
+ROOT
+VRA
+CVU
+IDN
+PRTS
+BARK
+SPOK
+NPK
+
+# Cesta tematica "Trump trade" (seccion 3 del informe). NO es el patrimonio
+# personal de Donald Trump: son acciones que la prensa financiera asocia con
+# sus politicas (aranceles, defensa, desregulacion, energia, cripto,
+# inmigracion). Ver TRUMP_TRADE_THEMES en screener.py y el glosario del PDF
+# para el detalle y las advertencias de cada una.
+DJT
+LMT
+RTX
+NOC
+NUE
+XOM
+COIN
+JPM
+GEO

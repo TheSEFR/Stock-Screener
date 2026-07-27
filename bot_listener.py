@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 from screener import generate_and_send_report
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+# "".join(...split()) quita cualquier espacio o salto de linea que se haya
+# colado al copiar el secret (frecuente al pegar desde el movil): un token
+# de Telegram nunca lleva espacios de verdad.
+TOKEN = "".join(os.environ["TELEGRAM_BOT_TOKEN"].split())
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 
@@ -36,11 +39,18 @@ def main() -> None:
 
     updates = requests.get(f"{API}/getUpdates", timeout=15).json().get("result", [])
     if not updates:
+        print("Sin mensajes nuevos.")
         return
 
     triggered = False
     for update in updates:
-        text = update.get("message", {}).get("text", "")
+        message = update.get("message", {})
+        chat = message.get("chat", {})
+        if chat:
+            # Ayuda a encontrar el TELEGRAM_CHAT_ID: aparece aqui en el log
+            # de esta ejecucion la primera vez que alguien le escribe al bot.
+            print(f"Mensaje recibido de chat_id={chat.get('id')} (tipo={chat.get('type')}, nombre={chat.get('first_name') or chat.get('title')})")
+        text = message.get("text", "")
         if text.strip().lower() == "/informe":
             triggered = True
         callback = update.get("callback_query")

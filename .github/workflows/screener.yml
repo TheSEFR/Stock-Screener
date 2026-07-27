@@ -1,13 +1,18 @@
 name: Stock Screener
 
+# Un unico disparo diario, a las 08:00 hora de Madrid (CEST, UTC+2) ->
+# 06:00 UTC. En horario de invierno (CET, UTC+1) llegara 1h mas tarde de lo
+# esperado. Ademas se puede disparar bajo demanda: desde el boton/comando de
+# Telegram (via bot_listener.yml, que sigue con su propio cron para
+# comprobar Telegram) o manualmente desde la pestaña Actions
+# (workflow_dispatch).
 on:
   schedule:
-    # Horas en UTC. Corresponden a 08:00 / 14:00 / 21:00 hora de Madrid (CEST, UTC+2).
-    # Nota: en horario de invierno (CET, UTC+1) llegaran 1h mas tarde de lo esperado.
     - cron: "0 6 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 19 * * *"
   workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   run-screener:
@@ -22,3 +27,40 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Opcionales (ver README): si no se configuran, el informe funciona
+          # igual que antes, sin el respaldo de estas fuentes adicionales.
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}
+      # Ademas de enviarse a Telegram, se guarda como artifact descargable
+      # desde la pestaña Actions (util para depurar sin depender de Telegram).
+      # if: always() -> se sube aunque el paso anterior falle (ej. Telegram
+      # mal configurado), siempre que el PDF llegara a generarse.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: informe-pdf
+          path: InformeFinanciero_*.pdf
+          retention-days: 14
+          if-no-files-found: ignore
+      # Ademas del artifact, publica el PDF en una rama dedicada
+      # ("informe-latest", solo ese fichero, sin historial) para poder
+      # verificarlo con un simple git fetch, sin depender de descargar
+      # artifacts (requiere una URL firmada de Azure Blob que no todos los
+      # entornos pueden alcanzar) ni de Telegram. El nombre del PDF lleva
+      # la fecha (InformeFinanciero_DD-MM-YYYY.pdf), asi que se busca con
+      # un glob en vez de un nombre fijo.
+      - name: Publicar el PDF en la rama informe-latest
+        if: always()
+        run: |
+          FILE=$(ls InformeFinanciero_*.pdf 2>/dev/null | head -1)
+          if [ -n "$FILE" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git checkout --orphan informe-latest
+            git rm -rf --cached . > /dev/null 2>&1 || true
+            git add -f "$FILE"
+            git commit -m "Informe generado $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push --force origin HEAD:informe-latest
+          else
+            echo "No se genero ningun InformeFinanciero_*.pdf, nada que publicar."
+          fi
