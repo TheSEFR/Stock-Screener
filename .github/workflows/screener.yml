@@ -1,10 +1,14 @@
 name: Stock Screener
 
-# Sin "schedule": el informe ya NO se genera automaticamente varias veces al
-# dia. Solo se dispara bajo demanda, desde el boton/comando de Telegram (via
-# bot_listener.yml, que si sigue con su propio cron para comprobar Telegram)
-# o manualmente desde la pestaña Actions (workflow_dispatch).
+# Un unico disparo diario, a las 08:00 hora de Madrid (CEST, UTC+2) ->
+# 06:00 UTC. En horario de invierno (CET, UTC+1) llegara 1h mas tarde de lo
+# esperado. Ademas se puede disparar bajo demanda: desde el boton/comando de
+# Telegram (via bot_listener.yml, que sigue con su propio cron para
+# comprobar Telegram) o manualmente desde la pestaña Actions
+# (workflow_dispatch).
 on:
+  schedule:
+    - cron: "0 6 * * *"
   workflow_dispatch: {}
 
 permissions:
