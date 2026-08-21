@@ -1070,6 +1070,8 @@ def render_table(
     rows: list[list[str]],
     section_bg: tuple[int, int, int],
     link_map: dict | None = None,
+    table_width: float | None = None,
+    table_align: str = "CENTER",
 ) -> None:
     """Version generica de render_summary_table (misma logica exacta:
     zebra derivada de section_bg, cabecera negra sobre franja azul, altura
@@ -1091,6 +1093,8 @@ def render_table(
 
     with pdf.table(
         col_widths=widths,
+        width=table_width,
+        align=table_align,
         text_align=align,
         headings_style=headings_style,
         line_height=line_height,

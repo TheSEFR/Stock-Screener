@@ -22,6 +22,7 @@ insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
 - [Personalizar la watchlist](#personalizar-la-watchlist)
 - [Cesta temática "Trump trade"](#cesta-temática-trump-trade)
 - [Diseño del PDF](#diseño-del-pdf)
+- [Informe mensual/anual (Tabla seguimiento acciones)](#informe-mensualanual-tabla-seguimiento-acciones)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Automatización (GitHub Actions)](#automatización-github-actions)
 - [Glosario de métricas](#glosario-de-métricas)
@@ -258,24 +259,55 @@ suave, y las de "Noticias recientes" y "Glosario de variables" un fondo frío
 igual de suave (el resto del informe queda en blanco); el texto negro sigue
 siendo perfectamente legible sobre ambos tintes.
 
+## Informe mensual/anual (Tabla seguimiento acciones)
+
+Además del informe diario, `monthly_report.py` genera un **segundo PDF**
+("Tabla seguimiento acciones") el día 1 de cada mes, y adicionalmente uno
+anual el 1 de enero, comparando por cada acción:
+
+| Columna | De dónde sale |
+|---|---|
+| **Inicio F.Y. / Fin F.Y.** | Mes/año en que empieza y termina el año fiscal ACTUAL de la empresa (no siempre coincide con el año natural). |
+| **Precio inicio F.Y.** | Precio REAL de cierre de la acción en la fecha de inicio de su año fiscal, obtenido vía `yfinance.Ticker.history()` (histórico real de precios, no una aproximación ni un valor cacheado). |
+| **P. real actual** | Precio de la acción en el momento de generar el informe. |
+| **P. objetivo** | Precio objetivo medio de consenso de analistas — este sí es siempre el de HOY, porque Yahoo Finance no expone el objetivo que tenían los analistas en el pasado (a diferencia del precio de la acción, que sí tiene histórico real). |
+| **Diferencia** | Cuánto por encima o por debajo queda el precio real respecto al objetivo. |
+
+Las acciones se agrupan en las mismas 3 categorías que el informe principal
+(Principales / Pequeña capitalización / Cesta temática "Trump trade"), cada
+una en su propia hoja, con índice navegable y un glosario final. Usa la
+misma función de renderizado de tablas (`render_table()` en `screener.py`)
+y la misma portada (`draw_cover_page()`) que el informe diario, solo cambia
+el título — para que ambos documentos se vean como parte del mismo sistema.
+
+`price_history.json` (versionado en el repo) guarda una foto de precio +
+objetivo cada vez que corre este script, pero **ya no es necesario para la
+columna "Precio inicio F.Y."** (esa es histórico real desde el primer día);
+se mantiene por si se añaden en el futuro métricas que sí dependan de una
+foto propia en vez de historial de Yahoo.
+
 ## Estructura del proyecto
 
 ```
 Stock-Screener/
-├── screener.py             # Lógica principal: analiza, rankea y genera el PDF
+├── screener.py             # Lógica principal: analiza, rankea y genera el PDF diario
+├── monthly_report.py       # Informe mensual/anual "Tabla seguimiento acciones"
 ├── bot_listener.py         # Escucha Telegram para disparar el informe bajo demanda
 ├── watchlist.txt           # Lista de tickers a analizar
+├── price_history.json     # Histórico de precio/objetivo (ver informe mensual/anual)
 ├── requirements.txt        # Dependencias de Python
 └── .github/workflows/
-    ├── screener.yml        # Ejecuta el screener 3 veces al día
-    └── bot_listener.yml    # Comprueba el botón/comando de Telegram cada 10 min
+    ├── screener.yml         # Ejecuta el screener 3 veces al día
+    ├── monthly_report.yml   # Ejecuta el informe mensual/anual el día 1 de cada mes
+    └── bot_listener.yml     # Comprueba el botón/comando de Telegram cada 10 min
 ```
 
 ## Automatización (GitHub Actions)
 
 | Workflow | Frecuencia | Qué hace |
 |---|---|---|
-| `screener.yml` | 08:00, 14:00 y 21:00 (hora de Madrid) | Genera y envía el informe automáticamente |
+| `screener.yml` | 08:00, 14:00 y 21:00 (hora de Madrid) | Genera y envía el informe diario automáticamente |
+| `monthly_report.yml` | Día 1 de cada mes, 08:00 (hora de Madrid); también el informe anual si es 1 de enero | Genera y envía la "Tabla seguimiento acciones" |
 | `bot_listener.yml` | Cada 10 minutos | Comprueba si se pulsó "Generar informe ahora" o se envió `/informe`, y si es así dispara el informe |
 
 Ambos workflows también se pueden lanzar manualmente desde la pestaña
