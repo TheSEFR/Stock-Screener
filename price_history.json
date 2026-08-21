@@ -2,598 +2,834 @@
   "monthly": {
     "2026-08": {
       "AAPL": {
-        "price": 311.3,
+        "price": 308.11,
         "target": 326.3415,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25"
       },
       "MSFT": {
-        "price": 481.15,
+        "price": 485.42,
         "target": 569.5583,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "06/27",
+        "fiscal_year_start": "07/26"
       },
       "GOOGL": {
-        "price": 340.67,
+        "price": 342.3,
         "target": 428.06668,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AMZN": {
-        "price": 260.11,
+        "price": 259.558,
         "target": 326.83734,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NVDA": {
-        "price": 216.85,
+        "price": 215.43,
         "target": 304.1207,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26"
       },
       "META": {
-        "price": 545.83,
+        "price": 550.7485,
         "target": 754.14246,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TSLA": {
-        "price": 345.13,
+        "price": 358.398,
         "target": 395.3405,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AVGO": {
-        "price": 364.03,
+        "price": 367.14,
         "target": 527.88446,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25"
       },
       "ORCL": {
-        "price": 142.07,
+        "price": 145.9,
         "target": 246.42635,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "05/27",
+        "fiscal_year_start": "06/26"
       },
       "ADBE": {
-        "price": 272.22,
+        "price": 274.6,
         "target": 270.60587,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25"
       },
       "CRM": {
-        "price": 205.43,
+        "price": 208.15,
         "target": 243.0798,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "AMD": {
-        "price": 469.455,
+        "price": 466.16,
         "target": 614.434,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25"
       },
       "INTC": {
-        "price": 92.13,
+        "price": 90.075,
         "target": 114.87805,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25"
       },
       "QCOM": {
-        "price": 160.74,
+        "price": 159.84,
         "target": 193.1,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25"
       },
       "TXN": {
-        "price": 265.6,
+        "price": 261.95,
         "target": 324.4516,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "CSCO": {
-        "price": 109.59,
+        "price": 111.2,
         "target": 136.04546,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "07/27",
+        "fiscal_year_start": "07/26"
       },
       "IBM": {
-        "price": 233.69,
+        "price": 235.39,
         "target": 244.91217,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOW": {
-        "price": 129.75,
+        "price": 129.865,
         "target": 142.23174,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "INTU": {
-        "price": 361.87,
+        "price": 365.67,
         "target": 446.0182,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "07/26",
+        "fiscal_year_start": "08/25"
       },
       "UBER": {
-        "price": 78.55,
+        "price": 78.93,
         "target": 101.50128,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SHOP": {
-        "price": 147.18,
+        "price": 148.555,
         "target": 170.17021,
-        "region": "EEUU/Canada"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NFLX": {
-        "price": 80.14,
+        "price": 79.595,
         "target": 93.41556,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PYPL": {
-        "price": 62.3,
+        "price": 62.38,
         "target": 59.76939,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SNOW": {
-        "price": 321.29,
+        "price": 321.223,
         "target": 321.35,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "PLTR": {
-        "price": 173.96,
+        "price": 173.9817,
         "target": 191.68,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "ASML.AS": {
-        "price": 1505.8,
+        "price": 1497.6,
         "target": 2001.1389,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SAP.DE": {
-        "price": 184.88,
+        "price": 185.64,
         "target": 204.80923,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SIE.DE": {
-        "price": 277.85,
+        "price": 281.4,
         "target": 300.75696,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25"
       },
       "MC.PA": {
-        "price": 446.6,
+        "price": 451.4,
         "target": 568.8885,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NESN.SW": {
-        "price": 79.58,
+        "price": 79.63,
         "target": 88.86364,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOVN.SW": {
-        "price": 124.88,
-        "target": 123.161835,
-        "region": "Europa"
+        "price": 126.02,
+        "target": 123.494965,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "OR.PA": {
-        "price": 381.55,
+        "price": 384.3,
         "target": 417.79166,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AIR.PA": {
-        "price": 203.1,
+        "price": 204.4,
         "target": 230.95651,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "BABA": {
-        "price": 130.53,
-        "target": 190.176,
-        "region": "Asia/China"
+        "price": 120.87,
+        "target": 190.46225,
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "JD": {
-        "price": 29.41,
-        "target": 39.68069,
-        "region": "Asia/China"
+        "price": 29.3,
+        "target": 39.740417,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PDD": {
-        "price": 89.52,
-        "target": 116.77075,
-        "region": "Otros"
+        "price": 88.09,
+        "target": 116.94652,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "BIDU": {
-        "price": 91.97,
-        "target": 151.06934,
-        "region": "Asia/China"
+        "price": 92.72,
+        "target": 151.29674,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TCEHY": {
-        "price": 57.17,
-        "target": 96.82579,
-        "region": "Asia/China"
+        "price": 58.23,
+        "target": 96.81858,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TSM": {
-        "price": 416.0,
+        "price": 417.785,
         "target": 554.45483,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SONY": {
-        "price": 23.58,
+        "price": 23.955,
         "target": 30.0,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "005930.KS": {
         "price": 281500.0,
         "target": 470155.62,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "CLSK": {
-        "price": 12.6,
+        "price": 12.48,
         "target": 23.80769,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25"
       },
       "ROOT": {
-        "price": 57.41,
+        "price": 56.05,
         "target": 60.2,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "VRA": {
-        "price": 3.04,
+        "price": 3.1,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "CVU": {
-        "price": 5.44,
+        "price": 5.46,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "IDN": {
-        "price": 2.95,
+        "price": 2.94,
         "target": 4.83333,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PRTS": {
-        "price": 6.45,
+        "price": 6.28,
         "target": 10.85,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26"
       },
       "BARK": {
-        "price": 9.94,
+        "price": 9.87,
         "target": 15.5,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "SPOK": {
-        "price": 10.44,
+        "price": 10.49,
         "target": 14.0,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NPK": {
-        "price": 150.71,
+        "price": 149.785,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "DJT": {
-        "price": 8.51,
+        "price": 8.7863,
         "target": null,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "LMT": {
-        "price": 571.48,
+        "price": 567.9,
         "target": 632.9474,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "RTX": {
-        "price": 212.29,
+        "price": 211.72,
         "target": 234.81818,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOC": {
-        "price": 563.86,
+        "price": 556.85,
         "target": 647.1429,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NUE": {
-        "price": 240.48,
+        "price": 250.055,
         "target": 282.8125,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "XOM": {
-        "price": 166.15,
+        "price": 166.845,
         "target": 169.68182,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "COIN": {
-        "price": 172.35,
+        "price": 188.182,
         "target": 194.96793,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "JPM": {
-        "price": 351.55,
+        "price": 354.8,
         "target": 374.57144,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "GEO": {
-        "price": 31.72,
+        "price": 31.87,
         "target": 37.75,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       }
     }
   },
   "yearly": {
     "2026": {
       "AAPL": {
-        "price": 311.3,
+        "price": 308.11,
         "target": 326.3415,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25"
       },
       "MSFT": {
-        "price": 481.15,
+        "price": 485.42,
         "target": 569.5583,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "06/27",
+        "fiscal_year_start": "07/26"
       },
       "GOOGL": {
-        "price": 340.67,
+        "price": 342.3,
         "target": 428.06668,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AMZN": {
-        "price": 260.11,
+        "price": 259.558,
         "target": 326.83734,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NVDA": {
-        "price": 216.85,
+        "price": 215.43,
         "target": 304.1207,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26"
       },
       "META": {
-        "price": 545.83,
+        "price": 550.7485,
         "target": 754.14246,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TSLA": {
-        "price": 345.13,
+        "price": 358.398,
         "target": 395.3405,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AVGO": {
-        "price": 364.03,
+        "price": 367.14,
         "target": 527.88446,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25"
       },
       "ORCL": {
-        "price": 142.07,
+        "price": 145.9,
         "target": 246.42635,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "05/27",
+        "fiscal_year_start": "06/26"
       },
       "ADBE": {
-        "price": 272.22,
+        "price": 274.6,
         "target": 270.60587,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25"
       },
       "CRM": {
-        "price": 205.43,
+        "price": 208.15,
         "target": 243.0798,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "AMD": {
-        "price": 469.455,
+        "price": 466.16,
         "target": 614.434,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25"
       },
       "INTC": {
-        "price": 92.13,
+        "price": 90.075,
         "target": 114.87805,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25"
       },
       "QCOM": {
-        "price": 160.74,
+        "price": 159.84,
         "target": 193.1,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25"
       },
       "TXN": {
-        "price": 265.6,
+        "price": 261.95,
         "target": 324.4516,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "CSCO": {
-        "price": 109.59,
+        "price": 111.2,
         "target": 136.04546,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "07/27",
+        "fiscal_year_start": "07/26"
       },
       "IBM": {
-        "price": 233.69,
+        "price": 235.39,
         "target": 244.91217,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOW": {
-        "price": 129.75,
+        "price": 129.865,
         "target": 142.23174,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "INTU": {
-        "price": 361.87,
+        "price": 365.67,
         "target": 446.0182,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "07/26",
+        "fiscal_year_start": "08/25"
       },
       "UBER": {
-        "price": 78.55,
+        "price": 78.93,
         "target": 101.50128,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SHOP": {
-        "price": 147.18,
+        "price": 148.555,
         "target": 170.17021,
-        "region": "EEUU/Canada"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NFLX": {
-        "price": 80.14,
+        "price": 79.595,
         "target": 93.41556,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PYPL": {
-        "price": 62.3,
+        "price": 62.38,
         "target": 59.76939,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SNOW": {
-        "price": 321.29,
+        "price": 321.223,
         "target": 321.35,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "PLTR": {
-        "price": 173.96,
+        "price": 173.9817,
         "target": 191.68,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "ASML.AS": {
-        "price": 1505.8,
+        "price": 1497.6,
         "target": 2001.1389,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SAP.DE": {
-        "price": 184.88,
+        "price": 185.64,
         "target": 204.80923,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SIE.DE": {
-        "price": 277.85,
+        "price": 281.4,
         "target": 300.75696,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25"
       },
       "MC.PA": {
-        "price": 446.6,
+        "price": 451.4,
         "target": 568.8885,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NESN.SW": {
-        "price": 79.58,
+        "price": 79.63,
         "target": 88.86364,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOVN.SW": {
-        "price": 124.88,
-        "target": 123.161835,
-        "region": "Europa"
+        "price": 126.02,
+        "target": 123.494965,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "OR.PA": {
-        "price": 381.55,
+        "price": 384.3,
         "target": 417.79166,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "AIR.PA": {
-        "price": 203.1,
+        "price": 204.4,
         "target": 230.95651,
-        "region": "Europa"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "BABA": {
-        "price": 130.53,
-        "target": 190.176,
-        "region": "Asia/China"
+        "price": 120.87,
+        "target": 190.46225,
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "JD": {
-        "price": 29.41,
-        "target": 39.68069,
-        "region": "Asia/China"
+        "price": 29.3,
+        "target": 39.740417,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PDD": {
-        "price": 89.52,
-        "target": 116.77075,
-        "region": "Otros"
+        "price": 88.09,
+        "target": 116.94652,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "BIDU": {
-        "price": 91.97,
-        "target": 151.06934,
-        "region": "Asia/China"
+        "price": 92.72,
+        "target": 151.29674,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TCEHY": {
-        "price": 57.17,
-        "target": 96.82579,
-        "region": "Asia/China"
+        "price": 58.23,
+        "target": 96.81858,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "TSM": {
-        "price": 416.0,
+        "price": 417.785,
         "target": 554.45483,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "SONY": {
-        "price": 23.58,
+        "price": 23.955,
         "target": 30.0,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "005930.KS": {
         "price": 281500.0,
         "target": 470155.62,
-        "region": "Asia/China"
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "CLSK": {
-        "price": 12.6,
+        "price": 12.48,
         "target": 23.80769,
-        "region": "EEUU"
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25"
       },
       "ROOT": {
-        "price": 57.41,
+        "price": 56.05,
         "target": 60.2,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "VRA": {
-        "price": 3.04,
+        "price": 3.1,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26"
       },
       "CVU": {
-        "price": 5.44,
+        "price": 5.46,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "IDN": {
-        "price": 2.95,
+        "price": 2.94,
         "target": 4.83333,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "PRTS": {
-        "price": 6.45,
+        "price": 6.28,
         "target": 10.85,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26"
       },
       "BARK": {
-        "price": 9.94,
+        "price": 9.87,
         "target": 15.5,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26"
       },
       "SPOK": {
-        "price": 10.44,
+        "price": 10.49,
         "target": 14.0,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NPK": {
-        "price": 150.71,
+        "price": 149.785,
         "target": null,
-        "region": "EEUU"
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "DJT": {
-        "price": 8.51,
+        "price": 8.7863,
         "target": null,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "LMT": {
-        "price": 571.48,
+        "price": 567.9,
         "target": 632.9474,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "RTX": {
-        "price": 212.29,
+        "price": 211.72,
         "target": 234.81818,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NOC": {
-        "price": 563.86,
+        "price": 556.85,
         "target": 647.1429,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "NUE": {
-        "price": 240.48,
+        "price": 250.055,
         "target": 282.8125,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "XOM": {
-        "price": 166.15,
+        "price": 166.845,
         "target": 169.68182,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "COIN": {
-        "price": 172.35,
+        "price": 188.182,
         "target": 194.96793,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "JPM": {
-        "price": 351.55,
+        "price": 354.8,
         "target": 374.57144,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       },
       "GEO": {
-        "price": 31.72,
+        "price": 31.87,
         "target": 37.75,
-        "region": "EEUU"
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26"
       }
     }
   }

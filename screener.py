@@ -229,10 +229,10 @@ def fmp_recommendation(symbol: str) -> str | None:
     strong = sum(1 for g in recent_grades if g in STRONG_BUY_GRADES)
     weak = sum(1 for g in recent_grades if g in {"underperform", "sell", "reduce"})
     if strong > len(recent_grades) / 2:
-        return "COMPRA FUERTE"
+        return "CF"
     if weak > len(recent_grades) / 2:
-        return "NO COMPRAR"
-    return "COMPRA NEUTRAL"
+        return "NC"
+    return "CN"
 
 
 def load_watchlist() -> list[str]:
@@ -268,11 +268,11 @@ def has_recent_insider_buying(ticker: yf.Ticker) -> bool | None:
 
 
 RECOMMENDATION_LABELS = {
-    "strong_buy": "COMPRA FUERTE",
-    "buy": "COMPRA FUERTE",
-    "hold": "COMPRA NEUTRAL",
-    "underperform": "NO COMPRAR",
-    "sell": "NO COMPRAR",
+    "strong_buy": "CF",
+    "buy": "CF",
+    "hold": "CN",
+    "underperform": "NC",
+    "sell": "NC",
 }
 
 
@@ -311,7 +311,13 @@ def fmt_es(value: float, decimals: int = 2) -> str:
 
 def fmt_pct(value: float, decimals: int = 1, signed: bool = False) -> str:
     """Porcentaje en convenio español (coma decimal), opcionalmente con
-    signo +/- explicito (ej. Potencial de subida/bajada)."""
+    signo +/- explicito (ej. Potencial de subida/bajada). Valores extremos
+    (crecimientos disparados por una base de comparacion muy baja, ej.
+    Samsung con un unico analista) se redondean sin decimales: con decimal
+    no caben en el ancho calibrado de la columna (ver SUMMARY_WIDTHS) y
+    rompen el 'todo en una pagina' de toda la tabla por una sola fila."""
+    if abs(value) >= 1000:
+        decimals = 0
     sign = ("+" if value >= 0 else "-") if signed else ""
     return f"{sign}{fmt_es(abs(value) if signed else value, decimals)}%"
 
@@ -335,9 +341,14 @@ DISPLAY_NAME_MAX_CHARS = 8
 
 
 def display_name(info: dict, symbol: str) -> str:
-    """Nombre corto y legible para la tabla (ej. 'Samsung Elec' en vez de
-    '005930.KS'), truncado a un ancho fijo para no romper la calibracion de
-    columnas (ver comentario de SUMMARY_WIDTHS)."""
+    """El ticker tal cual (AAPL, GOOGL, TSM...) para la tabla: son las
+    'siglas' ya reconocibles de la accion. Unica excepcion: tickers que
+    empiezan por digito (ej. '005930.KS' de Samsung en la bolsa de Corea),
+    donde el codigo no dice nada y se sustituye por un nombre corto
+    legible, truncado para no romper la calibracion de columnas (ver
+    comentario de SUMMARY_WIDTHS)."""
+    if not symbol[:1].isdigit():
+        return symbol
     name = info.get("shortName") or info.get("longName") or symbol
     if len(name) > DISPLAY_NAME_MAX_CHARS + 1:
         return name[:DISPLAY_NAME_MAX_CHARS] + "."
@@ -345,13 +356,13 @@ def display_name(info: dict, symbol: str) -> str:
 
 
 def fiscal_year_end(info: dict) -> str:
-    # Formato corto (MM/YYYY, no DD/MM/YYYY): la tabla resumen tiene cada
-    # columna calibrada al milimetro exacto de su contenido (ver
-    # SUMMARY_WIDTHS) y el dia exacto no aporta tanto como el mes/ano.
+    # Formato aun mas corto (MM/AA, ej. "09/26"): la tabla resumen tiene
+    # cada columna calibrada al milimetro exacto de su contenido (ver
+    # SUMMARY_WIDTHS) y el ano completo no aporta tanto como mes + 2 digitos.
     ts = info.get("nextFiscalYearEnd") or info.get("lastFiscalYearEnd")
     if not ts:
         return "n/d"
-    return datetime.fromtimestamp(ts).strftime("%m/%Y")
+    return datetime.fromtimestamp(ts).strftime("%m/%y")
 
 
 def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
@@ -678,14 +689,18 @@ GLOSSARY = [
                      "(esas empresas no presentan Form 4); en ese caso el "
                      "criterio no cuenta ni a favor ni en contra en el "
                      "score."),
-    ("Recomendacion", "Consenso agregado de analistas de bancos y brokers "
-                       "que cubren la accion (Yahoo Finance recopila estas "
-                       "notas; si Yahoo no tiene cobertura, se intenta un "
-                       "respaldo opcional via Financial Modeling Prep, "
-                       "marcado como '(via FMP)'). COMPRA FUERTE = mayoria "
-                       "buy/strong buy, COMPRA NEUTRAL = mayoria hold, NO "
-                       "COMPRAR = mayoria underperform/sell, N/D = sin "
-                       "cobertura suficiente en ninguna fuente."),
+    ("Rec", "Recomendacion: consenso agregado de analistas de bancos y "
+            "brokers que cubren la accion (Yahoo Finance recopila estas "
+            "notas; si Yahoo no tiene cobertura, se intenta un respaldo "
+            "opcional via Financial Modeling Prep, marcado como "
+            "'(via FMP)'). Los valores posibles son CF, CN, NC y N/D "
+            "(ver cada uno mas abajo en este glosario)."),
+    ("CF", "= Compra Fuerte. Aparece en la columna 'Rec' cuando la mayoria "
+           "de analistas recientes dan buy/strong buy sobre la accion."),
+    ("CN", "= Compra Neutral. Aparece en la columna 'Rec' cuando la mayoria "
+           "de analistas recientes dan hold (ni comprar ni vender)."),
+    ("NC", "= No Comprar. Aparece en la columna 'Rec' cuando la mayoria de "
+           "analistas recientes dan underperform/sell."),
     ("Bancos", "Firmas de analisis (bancos de inversion, brokers) cuya nota "
                "mas reciente sobre la accion fue de compra/sobreponderar. "
                "Fuente: notas de upgrade/downgrade recopiladas por Yahoo "
@@ -703,9 +718,9 @@ GLOSSARY = [
                "EUR para Europa, KRW para Samsung, etc.), no convertido a "
                "una divisa comun, asi que no compares precios en bruto "
                "entre acciones de paises distintos."),
-    ("P.Objetivo", "Precio objetivo medio segun el consenso de analistas "
+    ("P.OBJ", "Precio objetivo medio segun el consenso de analistas "
                    "(campo targetMeanPrice de Yahoo Finance, mismo modulo "
-                   "que 'Crecim.' y 'Recomendacion'). Igual que esos "
+                   "que 'Crecim.' y 'Rec'). Igual que esos "
                    "campos, depende de la cobertura de analistas: mas "
                    "fiable con mucha cobertura, mas ruidoso o ausente (n/d) "
                    "con poca. NO es una prediccion propia de este informe. "
@@ -733,10 +748,10 @@ GLOSSARY = [
                       "capitalizacion' en la seccion 2 de este informe "
                       f"(por debajo de {SMALL_CAP_MAX / 1_000_000_000:.0f}.000 "
                       "millones de USD)."),
-    ("Analistas", "Numero de analistas de bancos/brokers que Yahoo Finance "
+    ("Analy", "Numero de analistas de bancos/brokers que Yahoo Finance "
                      "contabiliza cubriendo esa accion (campo "
                      "numberOfAnalystOpinions). Cuantos menos analistas, "
-                     "menos fiables son 'Crecim.' y 'Recomendacion': se "
+                     "menos fiables son 'Crecim.' y 'Rec': se "
                      "basan en menos opiniones y se actualizan con menos "
                      "frecuencia. n/d = Yahoo no reporta cobertura para ese "
                      "ticker."),
@@ -933,11 +948,11 @@ MAX_FICHA_SPACING = 40
 
 # Tope de la altura de fila de las tablas resumen: con pocas filas, repartir
 # TODO el alto de la hoja entre ellas daria filas desproporcionadas.
-MAX_TABLE_ROW_HEIGHT = 14
+MAX_TABLE_ROW_HEIGHT = 12
 
 
-SUMMARY_HEADERS = ["#", "Empresa", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "F.Y."]
-SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "F.Y."}
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.OBJ", "Potencial", "Pais", "Sector", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Rec", "F.Y."]
+SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Rec", "F.Y."}
 # Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
 # mas largo que debe caber sin partirse en cada columna, mas los 2mm que
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
@@ -952,22 +967,46 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 # filas miden lo mismo y su altura se puede fijar de golpe (ver line_height
 # en render_summary_table). Los casos peores, que antes envolvian a dos
 # lineas y hacian esas filas el doble de altas, son:
-#   Sector         "Communication Services" (31,2mm)
-#   Recomendacion  "COMPRA NEUTRAL" (26,3mm; ojo, mas ancho que
-#                  "COMPRA FUERTE", que es el que se midio por error antes)
-#   Pais           "United Kingdom" (20,1mm; mas ancho que "United States")
-SUMMARY_WIDTHS = (5.1, 16.6, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3, 12.2)
-# "Empresa" (antes "Ticker"): nombre corto legible (ver display_name(),
-# max 12 caracteres incl. el punto de truncado -> "JPMorgan Ch." mide
-# 18.04mm a 8pt) + 2mm de margen interno = 20.0mm.
+#   Pais y Sector ya NO se muestran completos (ver COUNTRY_ABBR/SECTOR_ABBR
+#   mas abajo): "United States" -> "USA", "Communication Services" -> "Comm"
+#   etc, asi que el peor caso de cada columna es mucho mas corto.
+# Medidos con fpdf: cada valor = max(ancho cabecera negrita, ancho peor
+# valor abreviado) + 2mm de margen interno de celda. Suma total 187,6mm.
+SUMMARY_WIDTHS = (5.1, 16.6, 12.2, 12.2, 14.6, 8.1, 15.0, 10.9, 9.7, 9.8, 12.2, 9.1, 8.0, 12.3, 17.1, 7.2, 9.1)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-# "F.Y." es "MM/YYYY" (10.2mm medidos a 8pt): ancho 12.2mm = eso + 2mm de
-# margen interno, igual que el resto de columnas (ver comentario de
-# SUMMARY_WIDTHS arriba). Con esto la suma total vuelve a caber dentro del
-# ancho imprimible sin robarle holgura a "Sector"/"Recomendacion", que no
-# tienen margen de sobra.
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L", "L"]
+
+# Pais/sector abreviados (pedido explicito: nada de nombres largos que
+# obliguen a estirar la tabla o dejen huecos). Fallback: primeras 3-4
+# letras en mayuscula si no esta en el diccionario.
+COUNTRY_ABBR = {
+    "United States": "USA", "Canada": "CAN", "Germany": "GER",
+    "France": "FRA", "Switzerland": "SUI", "Netherlands": "NED",
+    "Spain": "ESP", "Italy": "ITA", "United Kingdom": "UK",
+    "Sweden": "SWE", "Belgium": "BEL", "China": "CHN",
+    "Taiwan": "TAI", "South Korea": "KOR", "Japan": "JPN",
+    "Hong Kong": "HKG",
+}
+SECTOR_ABBR = {
+    "Technology": "Tech", "Communication Services": "Comm",
+    "Consumer Cyclical": "Cons.Cyc", "Consumer Defensive": "Cons.Def",
+    "Financial Services": "Finance", "Industrials": "Indus.",
+    "Healthcare": "Health", "Energy": "Energy", "Utilities": "Util.",
+    "Real Estate": "R.Estate", "Basic Materials": "Materials",
+}
+
+
+def country_abbr(country: str | None) -> str:
+    if not country:
+        return "n/a"
+    return COUNTRY_ABBR.get(country, country[:4].upper())
+
+
+def sector_abbr(sector: str | None) -> str:
+    if not sector:
+        return "n/a"
+    return SECTOR_ABBR.get(sector, sector[:8])
 
 
 def make_donut_chart(data: dict[str, int], size: int = 400, hole_ratio: float = 0.55):
@@ -1074,8 +1113,8 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             row.cell(fmt_es(o["current_price"]) if o["current_price"] else "n/d")
             row.cell(fmt_es(o["target_price"]) if o["target_price"] else "n/d")
             row.cell(fmt_pct(o["upside"] * 100, signed=True) if o["upside"] is not None else "n/d")
-            row.cell(sanitize(o["country"] or "n/a"))
-            row.cell(sanitize(o["sector"] or "n/a"))
+            row.cell(sanitize(country_abbr(o["country"])))
+            row.cell(sanitize(sector_abbr(o["sector"])))
             row.cell(format_market_cap(o["market_cap"]))
             row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
             row.cell(f"{o['score']}/{o['checks_applicable']}")
@@ -1345,6 +1384,94 @@ def render_toc(pdf: FPDF, outline) -> None:
     pdf.set_y(max(col_y))
 
 
+def draw_cover_page(pdf: FPDF, title_text: str) -> None:
+    """Portada reutilizable (logo/titular centrados, firma anclada abajo a
+    la derecha) para cualquier informe de esta app: cambia solo el titulo,
+    todo el resto (colores, logo, firma en arabe) es identico en todos.
+    NO es una plantilla real de JPMorgan, ING ni de ningun otro banco: ver
+    clausula de no afiliacion en la pagina siguiente. Logo grande solo aqui
+    (paginas interiores llevan la version pequeña via header())."""
+    pdf.page_background = PORTADA_BG
+    pdf.add_page()
+    if os.path.exists(SEF_ARABIC_FONT_PATH):
+        pdf.add_font("FreeSerifArabic", "", SEF_ARABIC_FONT_PATH)
+    logo_size = 40
+    kicker_h = 6
+    title_line_h = 14
+    arabic_h = 8
+    gap_title_arabic = 2
+    brand_h = 10
+    credit_h = 5  # altura de cada linea de la firma, en columna (3 lineas)
+    gap_logo_kicker = 6
+    gap_kicker_title = 3
+
+    title_size = 30
+    pdf.set_font("Helvetica", size=title_size, style="B")
+    while pdf.get_string_width(title_text) > pdf.epw and title_size > 20:
+        title_size -= 1
+        pdf.set_font("Helvetica", size=title_size, style="B")
+    title_lines = 2 if pdf.get_string_width(title_text) > pdf.epw else 1
+
+    block_height = (
+        logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
+        + title_line_h * title_lines + gap_title_arabic + arabic_h
+    )
+    y = (pdf.h - block_height) / 2
+
+    if os.path.exists(SEF_LOGO_PATH):
+        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_size) / 2, y=y, w=logo_size, h=logo_size)
+    y += logo_size + gap_logo_kicker
+
+    pdf.set_y(y)
+    pdf.set_font("Helvetica", size=9, style="B")
+    pdf.set_text_color(*NAVY)
+    pdf.cell(0, kicker_h, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    y += kicker_h + gap_kicker_title
+
+    pdf.set_y(y)
+    pdf.set_font("Helvetica", size=title_size, style="B")
+    pdf.set_text_color(*INK)
+    if title_lines == 2:
+        words = title_text.split()
+        mid = len(words) // 2
+        pdf.cell(0, title_line_h, sanitize(" ".join(words[:mid])), align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, title_line_h, sanitize(" ".join(words[mid:])), align="C", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, title_line_h, sanitize(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(gap_title_arabic)
+
+    # "SEF-Financial" tambien en arabe (transliteracion fonetica), como
+    # detalle bilingue bajo el titulo. set_text_shaping activa el motor de
+    # HarfBuzz (via uharfbuzz) para el trazado de derecha a izquierda y las
+    # formas contextuales del arabe; sin el, las letras saldrian sueltas y
+    # en el orden equivocado.
+    if os.path.exists(SEF_ARABIC_FONT_PATH):
+        pdf.set_font("FreeSerifArabic", size=13)
+        pdf.set_text_color(*NAVY)
+        pdf.set_text_shaping(True)
+        pdf.cell(0, arabic_h, "سيف فايننشال", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_shaping(False)
+        pdf.set_text_color(*INK)
+
+    # Firma compacta, alineada a la derecha y anclada abajo.
+    pdf.set_y(-55)
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=16, style="B")
+    pdf.set_text_color(*NAVY)
+    pdf.cell(pdf.epw, brand_h, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=9)
+    pdf.set_text_color(*INK)
+    pdf.cell(pdf.epw, credit_h, "Realizado por SEF", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(pdf.epw, credit_h, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=8, style="I")
+    pdf.cell(pdf.epw, credit_h, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.page_background = None
+
+
 def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
     avg_txt = fmt_es(avg_pe, 1) if avg_pe else "n/d"
     coverage = Counter(region_for(r["country"]) for r in rows)
@@ -1365,98 +1492,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    # --- Portada: logo/titular centrados en la mitad superior de la
-    # pagina (bajados respecto al techo, no pegados arriba del todo), y la
-    # firma anclada abajo a la derecha, separada del bloque de arriba en
-    # vez de ir las dos cosas pegadas en un unico bloque central. NO es una
-    # plantilla real de JPMorgan, ING ni de ningun otro banco: ver clausula
-    # de no afiliacion en la pagina siguiente. Logo grande solo aqui
-    # (paginas interiores llevan la version pequeña via header()).
-    pdf.page_background = PORTADA_BG
-    pdf.add_page()
-    if os.path.exists(SEF_ARABIC_FONT_PATH):
-        pdf.add_font("FreeSerifArabic", "", SEF_ARABIC_FONT_PATH)
-    logo_size = 40
-    kicker_h = 6
-    title_line_h = 14
-    arabic_h = 8
-    gap_title_arabic = 2
-    brand_h = 10
-    credit_h = 5  # altura de cada linea de la firma, en columna (3 lineas)
-    gap_logo_kicker = 6
-    gap_kicker_title = 3
-
-    title_text = "Informe de acciones recomendadas"
-    title_size = 30
-    pdf.set_font("Helvetica", size=title_size, style="B")
-    while pdf.get_string_width(title_text) > pdf.epw and title_size > 20:
-        title_size -= 1
-        pdf.set_font("Helvetica", size=title_size, style="B")
-    title_lines = 2 if pdf.get_string_width(title_text) > pdf.epw else 1
-
-    block_height = (
-        logo_size + gap_logo_kicker + kicker_h + gap_kicker_title
-        + title_line_h * title_lines + gap_title_arabic + arabic_h
-    )
-    # Centrado sobre el alto completo de la pagina: al no incluir ya la
-    # firma en este calculo (va aparte, anclada abajo mas adelante), este
-    # bloque mas corto queda centrado mas abajo que antes.
-    y = (pdf.h - block_height) / 2
-
-    if os.path.exists(SEF_LOGO_PATH):
-        pdf.image(SEF_LOGO_PATH, x=(pdf.w - logo_size) / 2, y=y, w=logo_size, h=logo_size)
-    y += logo_size + gap_logo_kicker
-
-    pdf.set_y(y)
-    pdf.set_font("Helvetica", size=9, style="B")
-    pdf.set_text_color(*NAVY)
-    pdf.cell(0, kicker_h, sanitize(f"ANALISIS AUTOMATIZADO DE MERCADOS - {datetime.now():%Y}"), align="C", new_x="LMARGIN", new_y="NEXT")
-    y += kicker_h + gap_kicker_title
-
-    pdf.set_y(y)
-    pdf.set_font("Helvetica", size=title_size, style="B")
-    pdf.set_text_color(*INK)
-    if title_lines == 2:
-        pdf.cell(0, title_line_h, "Informe de acciones", align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.cell(0, title_line_h, "recomendadas", align="C", new_x="LMARGIN", new_y="NEXT")
-    else:
-        pdf.cell(0, title_line_h, sanitize(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(gap_title_arabic)
-
-    # "SEF-Financial" tambien en arabe (transliteracion fonetica), como
-    # detalle bilingue bajo el titulo. set_text_shaping activa el motor de
-    # HarfBuzz (via uharfbuzz) para el trazado de derecha a izquierda y las
-    # formas contextuales del arabe; sin el, las letras saldrian sueltas y
-    # en el orden equivocado.
-    if os.path.exists(SEF_ARABIC_FONT_PATH):
-        pdf.set_font("FreeSerifArabic", size=13)
-        pdf.set_text_color(*NAVY)
-        pdf.set_text_shaping(True)
-        pdf.cell(0, arabic_h, "سيف فايننشال", align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_text_shaping(False)
-        pdf.set_text_color(*INK)
-
-    # Firma compacta, alineada a la derecha y anclada abajo (no pegada al
-    # bloque de arriba, como antes).
-    pdf.set_y(-55)
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=16, style="B")
-    pdf.set_text_color(*NAVY)
-    pdf.cell(pdf.epw, brand_h, "SEF-Financial", align="R", new_x="LMARGIN", new_y="NEXT")
-    # Firma en columna (una linea por dato) en vez de todo en una fila
-    # separado por guiones. BODY_GRAY (pensado para texto sobre fondo claro)
-    # no contrasta lo suficiente sobre el azul intenso de la portada, asi
-    # que aqui se usa INK en su lugar.
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=9)
-    pdf.set_text_color(*INK)
-    pdf.cell(pdf.epw, credit_h, "Realizado por SEF", align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(pdf.epw, credit_h, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", size=8, style="I")
-    pdf.cell(pdf.epw, credit_h, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*INK)
+    draw_cover_page(pdf, "Informe de acciones recomendadas")
 
     # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
     # Con un subpunto por accion (ver render_detailed_descriptions) el
