@@ -1,6 +1,13 @@
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0F2A4A,100:1E5C8A&height=200&section=header&text=Stock%20Screener&fontSize=60&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Screener%20automatico%20de%20oportunidades%20de%20compra&descAlignY=58&descSize=18" alt="Stock Screener banner" />
-</p>
+<table align="center">
+  <tr>
+    <td width="78%">
+      <img src="https://capsule-render.vercel.app/api?type=venom&color=0:0F2A4A,100:1E5C8A&height=200&section=header&text=Stock%20Screener&fontSize=62&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Screener%20automatico%20de%20oportunidades%20de%20compra&descAlignY=62&descSize=18" alt="Stock Screener banner" width="100%" />
+    </td>
+    <td width="22%" align="center">
+      <img src="assets/sef_logo.png" alt="SEF-Financial" width="130" />
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white">
