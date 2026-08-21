@@ -1,16 +1,33 @@
-# 📈 Stock Screener
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0F2A4A,100:1E5C8A&height=200&section=header&text=Stock%20Screener&fontSize=60&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Screener%20automatico%20de%20oportunidades%20de%20compra&descAlignY=58&descSize=18" alt="Stock Screener banner" />
+</p>
 
-Screener automático de oportunidades de compra en bolsa. Analiza una watchlist de
-tickers, los rankea por fundamentales (P/E, PEG, crecimiento de beneficios e
-insider buying), genera un **informe en PDF** con el Top 10 y lo envía por
-**Telegram** — todo corriendo gratis en GitHub Actions, sin servidor propio.
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/Licencia-Uso%20personal-lightgrey">
+  <img alt="GitHub Actions" src="https://img.shields.io/badge/Automatizado%20con-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white">
+  <img alt="Telegram" src="https://img.shields.io/badge/Entrega-Telegram-26A5E4?logo=telegram&logoColor=white">
+</p>
 
-> ⚠️ **Aviso**: este informe se genera automáticamente a partir de datos públicos
-> (Yahoo Finance). No constituye asesoramiento financiero ni recomendación de
+## Acerca de
+
+**Stock Screener** analiza una watchlist de acciones de EE.UU., Europa y
+Asia, las puntúa con fundamentales reales (P/E frente a su sector, PEG,
+crecimiento de beneficios, insider buying y un factor de calidad tipo
+Piotroski), y entrega dos informes en PDF por Telegram sin que tengas que
+tocar nada: uno **diario** con el ranking completo, y uno **mensual/anual**
+que compara el precio real de cierre en el inicio del año fiscal de cada
+empresa contra su precio actual y el objetivo de los analistas. Todo corre
+gratis en GitHub Actions — cero servidor propio, cero coste.
+
+> ⚠️ **Aviso**: estos informes se generan automáticamente a partir de datos
+> públicos (Yahoo Finance, SEC EDGAR y, opcionalmente, Financial Modeling
+> Prep). No constituyen asesoramiento financiero ni recomendación de
 > inversión personalizada.
 
 ## Índice
 
+- [Acerca de](#acerca-de)
 - [¿Qué hace?](#qué-hace)
 - [Fuentes de datos combinadas](#fuentes-de-datos-combinadas)
 - [Criterios del ranking](#criterios-del-ranking)
