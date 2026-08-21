@@ -331,6 +331,13 @@ def format_market_cap(value: float | None) -> str:
     return f"{fmt_es(value / 1_000_000, 0)}M"
 
 
+def fiscal_year_end(info: dict) -> str:
+    ts = info.get("nextFiscalYearEnd") or info.get("lastFiscalYearEnd")
+    if not ts:
+        return "n/d"
+    return datetime.fromtimestamp(ts).strftime("%d/%m/%Y")
+
+
 def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
     rows = []
     for sym in symbols:
@@ -399,6 +406,7 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
                 "debt_to_equity": info.get("debtToEquity"),
                 "current_ratio": info.get("currentRatio"),
                 "description_en": (info.get("longBusinessSummary") or "")[:DESCRIPTION_MAX_CHARS],
+                "fiscal_year_end": fiscal_year_end(info),
             }
         )
 
@@ -761,6 +769,11 @@ GLOSSARY = [
                      "aparezca aqui no es una recomendacion de compra ni de "
                      "venta en ningun sentido, solo documenta una narrativa "
                      "de mercado."),
+    ("Cierre f.y.", "Fecha en que cierra el proximo año fiscal de la "
+                     "empresa (no siempre coincide con el año natural: "
+                     "Apple y Microsoft, por ejemplo, cierran en septiembre "
+                     "y junio respectivamente). Util para saber cuando "
+                     "presentara sus resultados anuales completos."),
 ]
 
 # Paleta institucional (inspirada en el formato tipico de notas de analisis
@@ -889,8 +902,8 @@ MAX_FICHA_SPACING = 40
 MAX_TABLE_ROW_HEIGHT = 14
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"]
-SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion"}
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "Cierre f.y."]
+SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "Cierre f.y."}
 # Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
 # mas largo que debe caber sin partirse en cada columna, mas los 2mm que
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
@@ -909,10 +922,12 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 #   Recomendacion  "COMPRA NEUTRAL" (26,3mm; ojo, mas ancho que
 #                  "COMPRA FUERTE", que es el que se midio por error antes)
 #   Pais           "United Kingdom" (20,1mm; mas ancho que "United States")
-SUMMARY_WIDTHS = (5.1, 16.0, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3)
+SUMMARY_WIDTHS = (5.1, 16.0, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3, 16.1)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L"]
+# "Cierre f.y." es una fecha (DD/MM/YYYY): alineada a la izquierda, igual
+# que "Pais" (mismo ancho de columna, mismo tipo de contenido corto).
+SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L", "L"]
 
 
 def make_donut_chart(data: dict[str, int], size: int = 400, hole_ratio: float = 0.55):
@@ -1031,6 +1046,7 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             insider = o["insider_buying"]
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
             row.cell(o["recommendation"])
+            row.cell(o["fiscal_year_end"])
 
 
 def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_links: dict, section_number: int, theme: str, register_section: bool = True) -> None:

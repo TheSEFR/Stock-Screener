@@ -1,0 +1,600 @@
+{
+  "monthly": {
+    "2026-08": {
+      "AAPL": {
+        "price": 311.3,
+        "target": 326.3415,
+        "region": "EEUU"
+      },
+      "MSFT": {
+        "price": 481.15,
+        "target": 569.5583,
+        "region": "EEUU"
+      },
+      "GOOGL": {
+        "price": 340.67,
+        "target": 428.06668,
+        "region": "EEUU"
+      },
+      "AMZN": {
+        "price": 260.11,
+        "target": 326.83734,
+        "region": "EEUU"
+      },
+      "NVDA": {
+        "price": 216.85,
+        "target": 304.1207,
+        "region": "EEUU"
+      },
+      "META": {
+        "price": 545.83,
+        "target": 754.14246,
+        "region": "EEUU"
+      },
+      "TSLA": {
+        "price": 345.13,
+        "target": 395.3405,
+        "region": "EEUU"
+      },
+      "AVGO": {
+        "price": 364.03,
+        "target": 527.88446,
+        "region": "EEUU"
+      },
+      "ORCL": {
+        "price": 142.07,
+        "target": 246.42635,
+        "region": "EEUU"
+      },
+      "ADBE": {
+        "price": 272.22,
+        "target": 270.60587,
+        "region": "EEUU"
+      },
+      "CRM": {
+        "price": 205.43,
+        "target": 243.0798,
+        "region": "EEUU"
+      },
+      "AMD": {
+        "price": 469.455,
+        "target": 614.434,
+        "region": "EEUU"
+      },
+      "INTC": {
+        "price": 92.13,
+        "target": 114.87805,
+        "region": "EEUU"
+      },
+      "QCOM": {
+        "price": 160.74,
+        "target": 193.1,
+        "region": "EEUU"
+      },
+      "TXN": {
+        "price": 265.6,
+        "target": 324.4516,
+        "region": "EEUU"
+      },
+      "CSCO": {
+        "price": 109.59,
+        "target": 136.04546,
+        "region": "EEUU"
+      },
+      "IBM": {
+        "price": 233.69,
+        "target": 244.91217,
+        "region": "EEUU"
+      },
+      "NOW": {
+        "price": 129.75,
+        "target": 142.23174,
+        "region": "EEUU"
+      },
+      "INTU": {
+        "price": 361.87,
+        "target": 446.0182,
+        "region": "EEUU"
+      },
+      "UBER": {
+        "price": 78.55,
+        "target": 101.50128,
+        "region": "EEUU"
+      },
+      "SHOP": {
+        "price": 147.18,
+        "target": 170.17021,
+        "region": "EEUU/Canada"
+      },
+      "NFLX": {
+        "price": 80.14,
+        "target": 93.41556,
+        "region": "EEUU"
+      },
+      "PYPL": {
+        "price": 62.3,
+        "target": 59.76939,
+        "region": "EEUU"
+      },
+      "SNOW": {
+        "price": 321.29,
+        "target": 321.35,
+        "region": "EEUU"
+      },
+      "PLTR": {
+        "price": 173.96,
+        "target": 191.68,
+        "region": "EEUU"
+      },
+      "ASML.AS": {
+        "price": 1505.8,
+        "target": 2001.1389,
+        "region": "Europa"
+      },
+      "SAP.DE": {
+        "price": 184.88,
+        "target": 204.80923,
+        "region": "Europa"
+      },
+      "SIE.DE": {
+        "price": 277.85,
+        "target": 300.75696,
+        "region": "Europa"
+      },
+      "MC.PA": {
+        "price": 446.6,
+        "target": 568.8885,
+        "region": "Europa"
+      },
+      "NESN.SW": {
+        "price": 79.58,
+        "target": 88.86364,
+        "region": "Europa"
+      },
+      "NOVN.SW": {
+        "price": 124.88,
+        "target": 123.161835,
+        "region": "Europa"
+      },
+      "OR.PA": {
+        "price": 381.55,
+        "target": 417.79166,
+        "region": "Europa"
+      },
+      "AIR.PA": {
+        "price": 203.1,
+        "target": 230.95651,
+        "region": "Europa"
+      },
+      "BABA": {
+        "price": 130.53,
+        "target": 190.176,
+        "region": "Asia/China"
+      },
+      "JD": {
+        "price": 29.41,
+        "target": 39.68069,
+        "region": "Asia/China"
+      },
+      "PDD": {
+        "price": 89.52,
+        "target": 116.77075,
+        "region": "Otros"
+      },
+      "BIDU": {
+        "price": 91.97,
+        "target": 151.06934,
+        "region": "Asia/China"
+      },
+      "TCEHY": {
+        "price": 57.17,
+        "target": 96.82579,
+        "region": "Asia/China"
+      },
+      "TSM": {
+        "price": 416.0,
+        "target": 554.45483,
+        "region": "Asia/China"
+      },
+      "SONY": {
+        "price": 23.58,
+        "target": 30.0,
+        "region": "Asia/China"
+      },
+      "005930.KS": {
+        "price": 281500.0,
+        "target": 470155.62,
+        "region": "Asia/China"
+      },
+      "CLSK": {
+        "price": 12.6,
+        "target": 23.80769,
+        "region": "EEUU"
+      },
+      "ROOT": {
+        "price": 57.41,
+        "target": 60.2,
+        "region": "EEUU"
+      },
+      "VRA": {
+        "price": 3.04,
+        "target": null,
+        "region": "EEUU"
+      },
+      "CVU": {
+        "price": 5.44,
+        "target": null,
+        "region": "EEUU"
+      },
+      "IDN": {
+        "price": 2.95,
+        "target": 4.83333,
+        "region": "EEUU"
+      },
+      "PRTS": {
+        "price": 6.45,
+        "target": 10.85,
+        "region": "EEUU"
+      },
+      "BARK": {
+        "price": 9.94,
+        "target": 15.5,
+        "region": "EEUU"
+      },
+      "SPOK": {
+        "price": 10.44,
+        "target": 14.0,
+        "region": "EEUU"
+      },
+      "NPK": {
+        "price": 150.71,
+        "target": null,
+        "region": "EEUU"
+      },
+      "DJT": {
+        "price": 8.51,
+        "target": null,
+        "region": "EEUU"
+      },
+      "LMT": {
+        "price": 571.48,
+        "target": 632.9474,
+        "region": "EEUU"
+      },
+      "RTX": {
+        "price": 212.29,
+        "target": 234.81818,
+        "region": "EEUU"
+      },
+      "NOC": {
+        "price": 563.86,
+        "target": 647.1429,
+        "region": "EEUU"
+      },
+      "NUE": {
+        "price": 240.48,
+        "target": 282.8125,
+        "region": "EEUU"
+      },
+      "XOM": {
+        "price": 166.15,
+        "target": 169.68182,
+        "region": "EEUU"
+      },
+      "COIN": {
+        "price": 172.35,
+        "target": 194.96793,
+        "region": "EEUU"
+      },
+      "JPM": {
+        "price": 351.55,
+        "target": 374.57144,
+        "region": "EEUU"
+      },
+      "GEO": {
+        "price": 31.72,
+        "target": 37.75,
+        "region": "EEUU"
+      }
+    }
+  },
+  "yearly": {
+    "2026": {
+      "AAPL": {
+        "price": 311.3,
+        "target": 326.3415,
+        "region": "EEUU"
+      },
+      "MSFT": {
+        "price": 481.15,
+        "target": 569.5583,
+        "region": "EEUU"
+      },
+      "GOOGL": {
+        "price": 340.67,
+        "target": 428.06668,
+        "region": "EEUU"
+      },
+      "AMZN": {
+        "price": 260.11,
+        "target": 326.83734,
+        "region": "EEUU"
+      },
+      "NVDA": {
+        "price": 216.85,
+        "target": 304.1207,
+        "region": "EEUU"
+      },
+      "META": {
+        "price": 545.83,
+        "target": 754.14246,
+        "region": "EEUU"
+      },
+      "TSLA": {
+        "price": 345.13,
+        "target": 395.3405,
+        "region": "EEUU"
+      },
+      "AVGO": {
+        "price": 364.03,
+        "target": 527.88446,
+        "region": "EEUU"
+      },
+      "ORCL": {
+        "price": 142.07,
+        "target": 246.42635,
+        "region": "EEUU"
+      },
+      "ADBE": {
+        "price": 272.22,
+        "target": 270.60587,
+        "region": "EEUU"
+      },
+      "CRM": {
+        "price": 205.43,
+        "target": 243.0798,
+        "region": "EEUU"
+      },
+      "AMD": {
+        "price": 469.455,
+        "target": 614.434,
+        "region": "EEUU"
+      },
+      "INTC": {
+        "price": 92.13,
+        "target": 114.87805,
+        "region": "EEUU"
+      },
+      "QCOM": {
+        "price": 160.74,
+        "target": 193.1,
+        "region": "EEUU"
+      },
+      "TXN": {
+        "price": 265.6,
+        "target": 324.4516,
+        "region": "EEUU"
+      },
+      "CSCO": {
+        "price": 109.59,
+        "target": 136.04546,
+        "region": "EEUU"
+      },
+      "IBM": {
+        "price": 233.69,
+        "target": 244.91217,
+        "region": "EEUU"
+      },
+      "NOW": {
+        "price": 129.75,
+        "target": 142.23174,
+        "region": "EEUU"
+      },
+      "INTU": {
+        "price": 361.87,
+        "target": 446.0182,
+        "region": "EEUU"
+      },
+      "UBER": {
+        "price": 78.55,
+        "target": 101.50128,
+        "region": "EEUU"
+      },
+      "SHOP": {
+        "price": 147.18,
+        "target": 170.17021,
+        "region": "EEUU/Canada"
+      },
+      "NFLX": {
+        "price": 80.14,
+        "target": 93.41556,
+        "region": "EEUU"
+      },
+      "PYPL": {
+        "price": 62.3,
+        "target": 59.76939,
+        "region": "EEUU"
+      },
+      "SNOW": {
+        "price": 321.29,
+        "target": 321.35,
+        "region": "EEUU"
+      },
+      "PLTR": {
+        "price": 173.96,
+        "target": 191.68,
+        "region": "EEUU"
+      },
+      "ASML.AS": {
+        "price": 1505.8,
+        "target": 2001.1389,
+        "region": "Europa"
+      },
+      "SAP.DE": {
+        "price": 184.88,
+        "target": 204.80923,
+        "region": "Europa"
+      },
+      "SIE.DE": {
+        "price": 277.85,
+        "target": 300.75696,
+        "region": "Europa"
+      },
+      "MC.PA": {
+        "price": 446.6,
+        "target": 568.8885,
+        "region": "Europa"
+      },
+      "NESN.SW": {
+        "price": 79.58,
+        "target": 88.86364,
+        "region": "Europa"
+      },
+      "NOVN.SW": {
+        "price": 124.88,
+        "target": 123.161835,
+        "region": "Europa"
+      },
+      "OR.PA": {
+        "price": 381.55,
+        "target": 417.79166,
+        "region": "Europa"
+      },
+      "AIR.PA": {
+        "price": 203.1,
+        "target": 230.95651,
+        "region": "Europa"
+      },
+      "BABA": {
+        "price": 130.53,
+        "target": 190.176,
+        "region": "Asia/China"
+      },
+      "JD": {
+        "price": 29.41,
+        "target": 39.68069,
+        "region": "Asia/China"
+      },
+      "PDD": {
+        "price": 89.52,
+        "target": 116.77075,
+        "region": "Otros"
+      },
+      "BIDU": {
+        "price": 91.97,
+        "target": 151.06934,
+        "region": "Asia/China"
+      },
+      "TCEHY": {
+        "price": 57.17,
+        "target": 96.82579,
+        "region": "Asia/China"
+      },
+      "TSM": {
+        "price": 416.0,
+        "target": 554.45483,
+        "region": "Asia/China"
+      },
+      "SONY": {
+        "price": 23.58,
+        "target": 30.0,
+        "region": "Asia/China"
+      },
+      "005930.KS": {
+        "price": 281500.0,
+        "target": 470155.62,
+        "region": "Asia/China"
+      },
+      "CLSK": {
+        "price": 12.6,
+        "target": 23.80769,
+        "region": "EEUU"
+      },
+      "ROOT": {
+        "price": 57.41,
+        "target": 60.2,
+        "region": "EEUU"
+      },
+      "VRA": {
+        "price": 3.04,
+        "target": null,
+        "region": "EEUU"
+      },
+      "CVU": {
+        "price": 5.44,
+        "target": null,
+        "region": "EEUU"
+      },
+      "IDN": {
+        "price": 2.95,
+        "target": 4.83333,
+        "region": "EEUU"
+      },
+      "PRTS": {
+        "price": 6.45,
+        "target": 10.85,
+        "region": "EEUU"
+      },
+      "BARK": {
+        "price": 9.94,
+        "target": 15.5,
+        "region": "EEUU"
+      },
+      "SPOK": {
+        "price": 10.44,
+        "target": 14.0,
+        "region": "EEUU"
+      },
+      "NPK": {
+        "price": 150.71,
+        "target": null,
+        "region": "EEUU"
+      },
+      "DJT": {
+        "price": 8.51,
+        "target": null,
+        "region": "EEUU"
+      },
+      "LMT": {
+        "price": 571.48,
+        "target": 632.9474,
+        "region": "EEUU"
+      },
+      "RTX": {
+        "price": 212.29,
+        "target": 234.81818,
+        "region": "EEUU"
+      },
+      "NOC": {
+        "price": 563.86,
+        "target": 647.1429,
+        "region": "EEUU"
+      },
+      "NUE": {
+        "price": 240.48,
+        "target": 282.8125,
+        "region": "EEUU"
+      },
+      "XOM": {
+        "price": 166.15,
+        "target": 169.68182,
+        "region": "EEUU"
+      },
+      "COIN": {
+        "price": 172.35,
+        "target": 194.96793,
+        "region": "EEUU"
+      },
+      "JPM": {
+        "price": 351.55,
+        "target": 374.57144,
+        "region": "EEUU"
+      },
+      "GEO": {
+        "price": 31.72,
+        "target": 37.75,
+        "region": "EEUU"
+      }
+    }
+  }
+}
