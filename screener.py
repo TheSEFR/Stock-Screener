@@ -1062,6 +1062,51 @@ def render_pie_block(pdf: FPDF, x: float, width: float, y: float, title: str, da
     pdf.set_text_color(*INK)
 
 
+def render_table(
+    pdf: FPDF,
+    headers: list[str],
+    widths: tuple[float, ...],
+    align: list[str],
+    rows: list[list[str]],
+    section_bg: tuple[int, int, int],
+    link_map: dict | None = None,
+) -> None:
+    """Version generica de render_summary_table (misma logica exacta:
+    zebra derivada de section_bg, cabecera negra sobre franja azul, altura
+    de fila estirada a la pagina) para tablas con columnas distintas a las
+    del informe principal, ej. el informe mensual/anual. Rows ya viene
+    formateado a texto (sin dicts con claves especificas)."""
+    from fpdf.fonts import FontFace
+
+    table_base_bg = _lighten(section_bg, 0.6)
+    table_stripe_bg = _lighten(section_bg, 0.35)
+    pdf.set_fill_color(*table_base_bg)
+    pdf.set_draw_color(*HAIRLINE)
+    pdf.set_font("Helvetica", size=8)
+    headings_style = FontFace(emphasis="B", color=INK, fill_color=table_stripe_bg)
+
+    n_rows = len(rows) + 1
+    available_h = (pdf.h - pdf.b_margin) - pdf.get_y() - 2
+    line_height = max(2 * pdf.font_size, min(available_h / n_rows, MAX_TABLE_ROW_HEIGHT))
+
+    with pdf.table(
+        col_widths=widths,
+        text_align=align,
+        headings_style=headings_style,
+        line_height=line_height,
+        cell_fill_color=table_stripe_bg,
+        cell_fill_mode="EVEN_ROWS",
+        borders_layout="HORIZONTAL_LINES",
+    ) as table:
+        row = table.row()
+        for h in headers:
+            row.cell(h, link=(link_map or {}).get(h))
+        for r in rows:
+            row = table.row()
+            for cell_val in r:
+                row.cell(cell_val)
+
+
 def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, section_bg: tuple[int, int, int]) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.

@@ -23,23 +23,45 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 import yfinance as yf
-from fpdf.fonts import FontFace
 
 from screener import (
+    HAIRLINE,
+    INDICE_BG,
     INK,
     NAVY,
     SECTION2_BG,
     SMALL_CAP_MAX,
     TRUMP_TRADE_THEMES,
     ReportPDF,
-    _lighten,
     draw_cover_page,
     fiscal_year_end,
     load_watchlist,
+    render_table,
     sanitize,
     section_header,
     send_telegram_document,
 )
+
+
+def render_toc(pdf, outline) -> None:
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", size=22, style="B")
+    pdf.set_text_color(*INK)
+    pdf.cell(0, 13, "Indice", new_x="LMARGIN", new_y="NEXT")
+    y_line = pdf.get_y() + 1
+    pdf.set_draw_color(*HAIRLINE)
+    pdf.set_line_width(0.3)
+    pdf.line(pdf.l_margin, y_line, pdf.w - pdf.r_margin, y_line)
+    pdf.ln(10)
+    pdf.set_font("Helvetica", size=13)
+    for section in outline:
+        link = pdf.add_link(page=section.page_number)
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(
+            0, 11,
+            sanitize(f"{section.name}  {'.' * 60}  pag. {section.page_number}"),
+            new_x="LMARGIN", new_y="NEXT", link=link,
+        )
 
 CATEGORY_ORDER = ["Principales", "Pequena capitalizacion", "Cesta tematica (Trump trade)"]
 
@@ -59,9 +81,6 @@ def categorize(symbol: str, market_cap: float | None) -> str:
     if market_cap is not None and market_cap < SMALL_CAP_MAX:
         return "Pequena capitalizacion"
     return "Principales"
-
-TABLE_FILL = _lighten(NAVY, 0.88)
-TABLE_STRIPE = _lighten(NAVY, 0.78)
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "price_history.json")
 
@@ -121,8 +140,14 @@ def build_comparison_pdf(
     # arabe, colores), solo cambia el titulo.
     draw_cover_page(pdf, "Tabla seguimiento acciones")
 
-    # Paginas de contenido en el mismo tono de la escala de color que usa
-    # el informe principal (SECTION2_BG = "Principales acciones").
+    # --- Indice (pagina reservada, se rellena sola al final con las
+    # secciones registradas via start_section mas abajo) ---
+    pdf.page_background = INDICE_BG
+    pdf.add_page()
+    pdf.insert_toc_placeholder(render_toc, pages=1, allow_extra_pages=True)
+
+    # --- Resumen / intro ---
+    pdf.start_section("Resumen")
     pdf.page_background = SECTION2_BG
     pdf.add_page()
     pdf.set_font("Helvetica", size=16, style="B")
@@ -139,53 +164,43 @@ def build_comparison_pdf(
             "haya pasado un periodo completo desde que se empezo a "
             "guardar el historico.",
         )
-    pdf.ln(4)
 
+    # --- Una seccion (hoja nueva) por categoria: misma funcion de tabla
+    # que el informe principal (render_table), sin reinventar nada propio.
+    headers = ["Ticker", "F.Y.", "Precio inicio F.Y.", "Precio real (mes actual)", "P. objetivo", "Diferencia"]
+    widths = (22, 24, 30, 30, 24, 24)
+    align = ["L", "L", "R", "R", "R", "R"]
     for category, tickers in blocks.items():
+        pdf.start_section(category)
+        pdf.add_page()
         section_header(pdf, "Categoria", category)
-        pdf.set_font("Helvetica", size=9)
-        pdf.set_fill_color(*TABLE_FILL)
-        headers = ["Ticker", "Inicio F.Y.", "Fin F.Y.", "Precio inicio F.Y.", "Precio real (mes actual)", "P. objetivo", "Diferencia"]
-        # Anchos ajustados al contenido real, tabla centrada sin estirar
-        # (ver nota en el informe principal sobre 'width' fijo).
-        widths = (20, 16, 16, 26, 26, 20, 20)
-        headings_style = FontFace(emphasis="B", color=(255, 255, 255), fill_color=NAVY)
-        with pdf.table(
-            col_widths=widths,
-            width=sum(widths),
-            align="LEFT",
-            text_align=["LEFT", "LEFT", "LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"],
-            headings_style=headings_style,
-            cell_fill_color=TABLE_STRIPE,
-            cell_fill_mode="EVEN_ROWS",
-            borders_layout="HORIZONTAL_LINES",
-        ) as table:
-            row = table.row()
-            for h in headers:
-                row.cell(h)
-            for sym in sorted(tickers):
-                now = current.get(sym, {})
-                jan = january_baseline.get(sym, {})
-                actual_price = now.get("price")
-                target = now.get("target")
-                january_price = jan.get("price")
-                fy_start = now.get("fiscal_year_start", "n/d")
-                fy_end = now.get("fiscal_year_end", "n/d")
-                diff_txt = "n/d"
-                if actual_price and target:
-                    diff_pct = (actual_price - target) / target * 100
-                    diff_txt = f"{diff_pct:+.1f}%"
-                row = table.row()
-                row.cell(sym)
-                row.cell(fy_start)
-                row.cell(fy_end)
-                row.cell(f"{january_price:.2f}" if january_price else "n/d")
-                row.cell(f"{actual_price:.2f}" if actual_price else "n/d")
-                row.cell(f"{target:.2f}" if target else "n/d")
-                row.cell(diff_txt)
-        pdf.ln(4)
 
-    section_header(pdf, "Referencia", "Que significa cada columna")
+        table_rows = []
+        for sym in sorted(tickers):
+            now = current.get(sym, {})
+            jan = january_baseline.get(sym, {})
+            actual_price = now.get("price")
+            target = now.get("target")
+            january_price = jan.get("price")
+            fy = f"{now.get('fiscal_year_start', 'n/d')} - {now.get('fiscal_year_end', 'n/d')}"
+            diff_txt = "n/d"
+            if actual_price and target:
+                diff_pct = (actual_price - target) / target * 100
+                diff_txt = f"{diff_pct:+.1f}%"
+            table_rows.append([
+                sym,
+                fy,
+                f"{january_price:.2f}" if january_price else "n/d",
+                f"{actual_price:.2f}" if actual_price else "n/d",
+                f"{target:.2f}" if target else "n/d",
+                diff_txt,
+            ])
+        render_table(pdf, headers, widths, align, table_rows, section_bg=SECTION2_BG)
+
+    # --- Glosario (hoja nueva, al final) ---
+    pdf.start_section("Glosario")
+    pdf.add_page()
+    section_header(pdf, "Glosario", "Que significa cada columna")
     pdf.set_font("Helvetica", size=9)
     pdf.multi_cell(
         pdf.epw, 5,
