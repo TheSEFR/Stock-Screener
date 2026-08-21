@@ -331,11 +331,27 @@ def format_market_cap(value: float | None) -> str:
     return f"{fmt_es(value / 1_000_000, 0)}M"
 
 
+DISPLAY_NAME_MAX_CHARS = 8
+
+
+def display_name(info: dict, symbol: str) -> str:
+    """Nombre corto y legible para la tabla (ej. 'Samsung Elec' en vez de
+    '005930.KS'), truncado a un ancho fijo para no romper la calibracion de
+    columnas (ver comentario de SUMMARY_WIDTHS)."""
+    name = info.get("shortName") or info.get("longName") or symbol
+    if len(name) > DISPLAY_NAME_MAX_CHARS + 1:
+        return name[:DISPLAY_NAME_MAX_CHARS] + "."
+    return name
+
+
 def fiscal_year_end(info: dict) -> str:
+    # Formato corto (MM/YYYY, no DD/MM/YYYY): la tabla resumen tiene cada
+    # columna calibrada al milimetro exacto de su contenido (ver
+    # SUMMARY_WIDTHS) y el dia exacto no aporta tanto como el mes/ano.
     ts = info.get("nextFiscalYearEnd") or info.get("lastFiscalYearEnd")
     if not ts:
         return "n/d"
-    return datetime.fromtimestamp(ts).strftime("%d/%m/%Y")
+    return datetime.fromtimestamp(ts).strftime("%m/%Y")
 
 
 def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
@@ -384,6 +400,7 @@ def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
         rows.append(
             {
                 "symbol": sym,
+                "name": display_name(info, sym),
                 "sector": info.get("sector"),
                 "country": info.get("country"),
                 "pe": pe,
@@ -497,14 +514,31 @@ def rank_top(rows: list[dict], n: int = TOP_N) -> list[dict]:
     return ranked[:n]
 
 
+TRANSLATION_ERROR_MARKERS = (
+    "server error", "that's an error", "please try again later",
+    "that's all we know",
+)
+
+
 def translate(text: str, target: str = "es") -> str:
     text = (text or "").strip()
     if not text:
         return ""
     try:
-        return GoogleTranslator(source="auto", target=target).translate(text) or text
+        result = GoogleTranslator(source="auto", target=target).translate(text)
     except Exception:
         return text  # servicio de traduccion caido: mostramos el original
+    if not result:
+        return text
+    # deep_translator no siempre lanza excepcion cuando Google devuelve una
+    # pagina de error (rate limit, 500...): a veces esa pagina de error se
+    # cuela como si fuera la traduccion valida. Si el resultado parece esa
+    # pagina de error en vez de una traduccion real, descartamos y mostramos
+    # el original.
+    low = result.lower()
+    if any(marker in low for marker in TRANSLATION_ERROR_MARKERS):
+        return text
+    return result
 
 
 def crude_sentiment(text: str) -> str:
@@ -769,11 +803,11 @@ GLOSSARY = [
                      "aparezca aqui no es una recomendacion de compra ni de "
                      "venta en ningun sentido, solo documenta una narrativa "
                      "de mercado."),
-    ("Cierre f.y.", "Fecha en que cierra el proximo año fiscal de la "
-                     "empresa (no siempre coincide con el año natural: "
-                     "Apple y Microsoft, por ejemplo, cierran en septiembre "
-                     "y junio respectivamente). Util para saber cuando "
-                     "presentara sus resultados anuales completos."),
+    ("F.Y.", "Mes/año en que cierra el proximo año fiscal de la empresa "
+              "(no siempre coincide con el año natural: Apple y Microsoft, "
+              "por ejemplo, cierran en septiembre y junio respectivamente). "
+              "Util para saber cuando presentara sus resultados anuales "
+              "completos."),
 ]
 
 # Paleta institucional (inspirada en el formato tipico de notas de analisis
@@ -902,8 +936,8 @@ MAX_FICHA_SPACING = 40
 MAX_TABLE_ROW_HEIGHT = 14
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "Cierre f.y."]
-SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "Cierre f.y."}
+SUMMARY_HEADERS = ["#", "Empresa", "Precio", "P.Objetivo", "Potencial", "Pais", "Sector", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "F.Y."]
+SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Recomendacion", "F.Y."}
 # Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
 # mas largo que debe caber sin partirse en cada columna, mas los 2mm que
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
@@ -922,11 +956,17 @@ SUMMARY_LINK_COLS = {"Precio", "P.Objetivo", "Potencial", "Cap.", "Analistas", "
 #   Recomendacion  "COMPRA NEUTRAL" (26,3mm; ojo, mas ancho que
 #                  "COMPRA FUERTE", que es el que se midio por error antes)
 #   Pais           "United Kingdom" (20,1mm; mas ancho que "United States")
-SUMMARY_WIDTHS = (5.1, 16.0, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3, 16.1)
+SUMMARY_WIDTHS = (5.1, 16.6, 16.1, 16.1, 14.5, 22.1, 33.2, 13.1, 14.5, 9.8, 12.2, 7.5, 8.0, 12.4, 17.1, 28.3, 12.2)
+# "Empresa" (antes "Ticker"): nombre corto legible (ver display_name(),
+# max 12 caracteres incl. el punto de truncado -> "JPMorgan Ch." mide
+# 18.04mm a 8pt) + 2mm de margen interno = 20.0mm.
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-# "Cierre f.y." es una fecha (DD/MM/YYYY): alineada a la izquierda, igual
-# que "Pais" (mismo ancho de columna, mismo tipo de contenido corto).
+# "F.Y." es "MM/YYYY" (10.2mm medidos a 8pt): ancho 12.2mm = eso + 2mm de
+# margen interno, igual que el resto de columnas (ver comentario de
+# SUMMARY_WIDTHS arriba). Con esto la suma total vuelve a caber dentro del
+# ancho imprimible sin robarle holgura a "Sector"/"Recomendacion", que no
+# tienen margen de sobra.
 SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L", "L"]
 
 
@@ -1030,7 +1070,7 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
         for i, o in enumerate(entries, start=1):
             row = table.row()
             row.cell(str(i))
-            row.cell(o["symbol"])
+            row.cell(o["name"])
             row.cell(fmt_es(o["current_price"]) if o["current_price"] else "n/d")
             row.cell(fmt_es(o["target_price"]) if o["target_price"] else "n/d")
             row.cell(fmt_pct(o["upside"] * 100, signed=True) if o["upside"] is not None else "n/d")

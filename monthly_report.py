@@ -77,7 +77,7 @@ def build_comparison_pdf(
     is_example: bool,
 ) -> str:
     blocks = group_by_region(current)
-    pdf = FPDF(orientation="L", format="A4")
+    pdf = FPDF(orientation="P", format="A4")
     pdf.set_auto_page_break(True, margin=15)
     pdf.add_page()
 
@@ -100,12 +100,18 @@ def build_comparison_pdf(
     for region, tickers in blocks.items():
         section_header(pdf, "Bloque", region)
         pdf.set_font("Helvetica", size=9)
-        headers = ["Ticker", "Precio inicio periodo", "Precio real alcanzado", "Objetivo analistas", "Diferencia vs objetivo"]
-        widths = (25, 40, 40, 40, 40)
+        headers = ["Ticker", "P. inicio", "P. real", "P. objetivo", "Diferencia"]
+        # Anchos ajustados al contenido real (numeros cortos tipo "311.30"),
+        # no estirados a lo ancho de la pagina: 'width' fija el ancho TOTAL
+        # de la tabla (centrada) en vez de dejar que fpdf2 la estire hasta
+        # el margen y deje huecos enormes en cada celda.
+        widths = (22, 20, 20, 22, 20)
         headings_style = FontFace(emphasis="B", color=INK, fill_color=(230, 235, 242))
         with pdf.table(
             col_widths=widths,
-            text_align="LEFT",
+            width=sum(widths),
+            align="LEFT",
+            text_align=["LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"],
             headings_style=headings_style,
             cell_fill_color=(240, 243, 248),
             cell_fill_mode="EVEN_ROWS",
