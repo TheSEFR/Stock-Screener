@@ -1189,6 +1189,7 @@ def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
     fake_outline.append(section("Oportunidades con margen de seguridad", 0))
     fake_outline.append(section("Mayor potencial segun analistas", 0))
     fake_outline.append(section("Estado de cada accion", 0))
+    fake_outline.append(section("Guia de motivos con ejemplos", 0))
     fake_outline.append(section("Glosario de variables", 0))
 
     scratch = ReportPDF(orientation="L", format="A4")
@@ -1609,12 +1610,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     render_conviction_pdf(pdf, rows)
     render_potential_pdf(pdf, potential or [], glossary_links, status_links)
     render_status_pdf(pdf, top + top_small + top_trump + (potential or []), status_links)
+    render_guide_pdf(pdf)
 
-    # --- Seccion 9: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 10: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 9", "9. Glosario de variables")
+    section_header(pdf, "Seccion 10", "10. Glosario de variables")
     for name, explanation in GLOSSARY:
         # Mantener el encabezado junto a las primeras líneas de su explicación.
         if pdf.get_y() + 22 > pdf.h - pdf.b_margin:
@@ -1756,6 +1758,36 @@ def write_reports(rows, errors, snapshot, output):
             entry={k:("'"+v if isinstance(v,str) and v.startswith(('=','+','-','@')) else v) for k,v in entry.items()}
             writer.writerow(entry)
 
+def render_guide_pdf(pdf):
+    """Seccion 9: cada motivo de rechazo, revision o cautela explicado en palabras normales y con un
+    ejemplo concreto (cifras inventadas, solo para entender). Los agrupa como en la columna Est."""
+    pdf.add_page()
+    pdf.start_section('Guia de motivos con ejemplos')
+    section_header(pdf,'Seccion 9','9. Guía de motivos, con ejemplos')
+    pdf.set_font('Helvetica',size=9)
+    pdf.multi_cell(pdf.epw,5,sanitize('Qué significa cada motivo que aparece en la sección 8. Los ejemplos usan cifras inventadas, '
+                   'solo para entender la idea; no son datos de ninguna empresa real.'),new_x='LMARGIN',new_y='NEXT')
+    pdf.ln(2)
+    for group, items in explain.GUIDE:
+        if pdf.get_y()+30 > pdf.h-pdf.b_margin:
+            pdf.add_page()
+        pdf.set_font('Helvetica',size=12,style='B')
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.epw,7,sanitize(group),new_x='LMARGIN',new_y='NEXT')
+        for reason,title,example in items:
+            if pdf.get_y()+26 > pdf.h-pdf.b_margin:
+                pdf.add_page()
+            pdf.set_font('Helvetica',size=10,style='B')
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(pdf.epw,5.5,sanitize(title),new_x='LMARGIN',new_y='NEXT')
+            pdf.set_font('Helvetica',size=9)
+            pdf.multi_cell(pdf.epw,5,sanitize(explain.humanize(reason)),new_x='LMARGIN',new_y='NEXT')
+            pdf.set_font('Helvetica',size=9,style='I')
+            pdf.multi_cell(pdf.epw,5,sanitize('Ejemplo: '+example),new_x='LMARGIN',new_y='NEXT')
+            pdf.ln(2)
+        pdf.ln(2)
+
+
 def render_status_pdf(pdf, rows, status_links):
     """Seccion 8: por que cada accion de las tablas tiene su estado (C/R/D/N), en lenguaje llano.
     La letra de la columna Est. de cada tabla salta aqui."""
@@ -1764,7 +1796,8 @@ def render_status_pdf(pdf, rows, status_links):
     section_header(pdf,'Seccion 8','8. Estado de cada accion')
     pdf.set_font('Helvetica',size=9)
     pdf.multi_cell(pdf.epw,5,sanitize(explain.LEGEND + '. Cada acción de las tablas aparece una vez, con lo que hay que saber en '
-                   'palabras normales. Un estado no es una recomendación: describe cómo la clasificó el filtro.'),
+                   'palabras normales y, tras «En su caso», con sus cifras reales. En la sección 9 hay una guía con un ejemplo de cada '
+                   'motivo. Un estado no es una recomendación: describe cómo la clasificó el filtro.'),
                    new_x='LMARGIN',new_y='NEXT')
     pdf.ln(3)
     seen=set()
