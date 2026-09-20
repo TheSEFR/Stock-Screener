@@ -153,6 +153,23 @@ def edgar_recent_insider_buy(symbol):
 
 
 
+UNIVERSE_DIR = Path(__file__).parent / 'universes'
+
+
+def load_universe(names):
+    """Watchlist base + las listas de universes/ indicadas ('global' = todas), sin duplicados.
+    Cada lista es un archivo universes/<nombre>.txt con un ticker de Yahoo por linea."""
+    available = {p.stem: p for p in sorted(UNIVERSE_DIR.glob('*.txt'))}
+    wanted = list(available) if 'global' in names else list(names)
+    unknown = [n for n in wanted if n not in available]
+    if unknown:
+        raise ValueError(f"Universo desconocido: {', '.join(unknown)}. Disponibles: global, {', '.join(available)}")
+    symbols = load_watchlist()
+    for name in wanted:
+        symbols += load_watchlist(available[name])
+    return list(dict.fromkeys(symbols))
+
+
 def load_watchlist(path=None):
     path = Path(path or WATCHLIST_FILE)
     if not path.exists():
@@ -364,6 +381,18 @@ def _fetch_ticker(sym, now, errors):
     return {'info': info, 'estimates': estimates}
 
 
+def _fetch_statements(sym, errors):
+    """Estados anuales (resultados, caja, balance) de un ticker, o None si fallan."""
+    try:
+        ticker = yf.Ticker(sym)
+        return {'income': conviction.table_records(ticker.income_stmt),
+                'cashflow': conviction.table_records(ticker.cashflow),
+                'balance': conviction.table_records(ticker.balance_sheet)}
+    except Exception as exc:
+        errors.append({'symbol': sym, 'stage': 'statements', 'error': type(exc).__name__})
+        return None
+
+
 def analyze(symbols):
     if yf is None:
         raise RuntimeError('Instala requirements.txt para consultar Yahoo. --demo funciona sin dependencias.')
@@ -395,9 +424,18 @@ def analyze(symbols):
         info, estimates = fetched['info'], fetched['estimates']
         row = core.normalize(sym, info, estimates, fx, now)
         row['name'] = display_name(info, sym)
+        record = {'symbol':sym, 'info':info, 'estimates':estimates}
+        if row['eps'] is None or row['book_value'] is None:
+            # Yahoo no da EPS/valor contable en la ficha de algunos mercados (p. ej. Corea):
+            # se reconstruyen desde los estados anuales y se guardan para poder reevaluar.
+            statements = _fetch_statements(sym, errors)
+            if statements:
+                record['statements'] = statements
+                core.fill_from_statements(row, statements, now)
         rows.append(row)
-        snapshots.append({'symbol':sym, 'info':info, 'estimates':estimates})
+        snapshots.append(record)
         time.sleep(.25)
+    core.mark_duplicates(rows)
     core.add_peers(rows)
     for row in rows:
         core.evaluate(row)
@@ -1556,7 +1594,7 @@ def generate_and_send_report():
     """Punto de entrada de bot_listener.py (/informe o botón de Telegram): pide
     el envío de forma explícita. Lanza error si falla, para que el workflow lo
     marque en rojo en vez de terminar en silencio."""
-    code = main(['--pdf', '--enrich', '--send'])
+    code = main(['--universe', 'global', '--pdf', '--enrich', '--send'])
     if code != 0:
         raise RuntimeError(f'El informe no se generó o no se envió (código {code})')
 
@@ -1600,8 +1638,11 @@ def replay(snapshot):
         raise ValueError('Snapshot sin fecha válida')
     rates=snapshot['fx_rates']
     rows=[core.normalize(r['symbol'],r['info'],r.get('estimates',{}),rates.get,as_of) for r in snapshot['records']]
+    for row,record in zip(rows,snapshot['records']):
+        core.fill_from_statements(row,record.get('statements'),as_of)
     if len({r['symbol'] for r in rows}) != len(rows):
         raise ValueError('Snapshot con tickers duplicados')
+    core.mark_duplicates(rows)
     core.add_peers(rows)
     inputs={r['symbol']:r for r in snapshot['records']}
     for row in rows:
@@ -1691,6 +1732,7 @@ def main(argv=None):
     parser.add_argument('--enrich',action='store_true',help='Noticias, notas recientes e insiders SEC para candidatas')
     parser.add_argument('--translate',action='store_true',help='Traducción externa opcional, requiere --enrich')
     parser.add_argument('--send',action='store_true',help='Enviar informe a tu Telegram configurado')
+    parser.add_argument('--universe',help="Añade a la watchlist listas de universes/: 'global' (todas) o nombres separados por comas (europa,asia_pacifico,americas_y_otros)")
     parser.add_argument('--resume',action='store_true',help='Reutilizar lo descargado hoy (cache/) si una ejecución anterior se interrumpió')
     parser.add_argument('--only-changes',action='store_true',help='Con --send: no enviar si no hay cambios relevantes desde la decisión anterior')
     parser.add_argument('--history',type=Path,default=forward_test.DEFAULT_HISTORY,help='Historial de decisiones (jsonl)')
@@ -1718,7 +1760,11 @@ def main(argv=None):
         if args.enrich:
             parser.error('--enrich no se combina con --demo/--input: deben ser reproducibles y sin red')
     else:
-        rows,_=analyze(load_watchlist(args.watchlist))
+        if args.universe:
+            symbols=load_universe([n.strip() for n in args.universe.split(',') if n.strip()])
+        else:
+            symbols=load_watchlist(args.watchlist)
+        rows,_=analyze(symbols)
         errors,snapshot=analyze.errors,analyze.snapshot
     if args.enrich:
         enriched={r['symbol']:r for r in enrich_top(rank_top(rows))}

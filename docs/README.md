@@ -114,3 +114,11 @@ Yahoo/yfinance puede cambiar, limitar solicitudes o devolver datos incompletos. 
 - **Ejecución robusta:** `--resume` reutiliza lo ya descargado hoy (`cache/`) si una ejecución se interrumpió; las escrituras son atómicas y un JSON corrupto se ignora. Los errores por ticker siguen en `resultados.json`. Las dependencias están fijadas en `requirements.txt`.
 
 Sigue sin existir un backtest: la rentabilidad de las reglas no está demostrada.
+
+## Cobertura mundial
+
+- **Universo** (`universes/*.txt` + `watchlist.txt`): `--universe global` carga todas las listas (unos 340 valores de 30 países); `--universe europa,asia_pacifico` carga solo algunas. Son listas escritas a mano, **no índices oficiales completos**: no se actualizan solas y pueden faltar empresas. Un ticker que Yahoo no reconozca se registra como error sin romper la ejecución. El workflow diario y `/informe` usan `global`.
+- **Comparables por escalones** (`peer_scope` en `resultados.json`): 1) misma industria y país, 2) misma industria y región (Norteamérica, Europa, Asia-Pacífico, Latinoamérica, Oriente Medio y África), 3) mismo sector y región (comparación más gruesa). Se exigen cinco comparables en cada escalón y nunca se cruza de región. Cuanto más grueso el escalón, menos preciso el P/E de referencia.
+- **Empresas duplicadas** (ADR y cotización local, doble cotización): se detectan por la descripción del negocio, se evalúa la cotización más líquida y la otra queda con estado `duplicada`, sin contar como candidata ni como comparable.
+- **Datos reconstruidos** (`derived`): si Yahoo no da EPS, P/E o valor contable en la ficha (p. ej. algunos valores coreanos), se reconstruyen desde los estados anuales solo si el precio y las cuentas están en la misma moneda. Es un EPS **anual**, no de los últimos 12 meses, así que el P/E puede estar desfasado.
+- **Yahoo** cubre bien los principales mercados del mundo pero sin garantías; el contraste con SEC solo cubre emisores de EEUU.

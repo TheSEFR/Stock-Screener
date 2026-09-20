@@ -221,6 +221,106 @@ class ScreenerTests(unittest.TestCase):
         c.add_peers(rows)
         self.assertIsNone(rows[0]['sector_avg_pe'])
 
+    def missing_row(self,**kw):
+        row=dict(currency='KRW',financial_currency='KRW',current_price=100.0,eps=None,pe=None,book_value=None)
+        row.update(kw)
+        return row
+
+    def statements(self,date='2026-06-30',eps=5.0,equity=1000.0,shares=100.0):
+        return {'income':[{'date':date,'Diluted EPS':eps,'Diluted Average Shares':shares}],
+                'balance':[{'date':date,'Stockholders Equity':equity}]}
+
+    def test_missing_eps_pe_and_book_are_derived_and_marked(self):
+        row=c.fill_from_statements(self.missing_row(),self.statements(),datetime(2026,9,20,tzinfo=timezone.utc))
+        self.assertEqual((row['eps'],row['pe'],row['book_value']),(5.0,20.0,10.0))
+        self.assertEqual(row['derived'],['eps','pe','book_value'])
+
+    def test_existing_yahoo_values_are_not_overwritten(self):
+        row=c.fill_from_statements(self.missing_row(eps=9.0,pe=11.0,book_value=7.0),self.statements(),
+                                   datetime(2026,9,20,tzinfo=timezone.utc))
+        self.assertEqual((row['eps'],row['pe'],row['book_value'],row['derived']),(9.0,11.0,7.0,[]))
+
+    def test_no_derivation_across_currencies_or_subunits(self):
+        now=datetime(2026,9,20,tzinfo=timezone.utc)
+        for kw in ({'financial_currency':'USD'},{'currency':'GBp','financial_currency':'GBP'}):
+            row=c.fill_from_statements(self.missing_row(**kw),self.statements(),now)
+            self.assertIsNone(row['eps'])
+
+    def test_stale_or_negative_earnings_statements(self):
+        now=datetime(2026,9,20,tzinfo=timezone.utc)
+        self.assertIsNone(c.fill_from_statements(self.missing_row(),self.statements(date='2024-12-31'),now)['eps'])
+        loss=c.fill_from_statements(self.missing_row(),self.statements(eps=-3.0),now)
+        self.assertEqual((loss['eps'],loss['pe']),(-3.0,None))  # el PER no se inventa con perdidas
+
+    def peer_rows(self,countries):
+        rows=[]
+        for i,country in enumerate(countries):
+            row=copy.deepcopy(self.good)
+            row.update(symbol=f'P{i}',country=country,industry='Consumer Electronics',pe=10.0+i,
+                       quote_type='EQUITY',quote_age_days=1,financial_age_days=30,operating_margin=.1+i/100)
+            rows.append(row)
+        return rows
+
+    def dual_listing(self):
+        text='Alibaba Group Holding Limited provides technology infrastructure and marketing reach to help merchants engage with customers.'
+        adr=copy.deepcopy(self.good); local=copy.deepcopy(self.good)
+        adr.update(symbol='BABA',description_en=text,avg_dollar_volume=9e8)
+        local.update(symbol='9988.HK',description_en=text,avg_dollar_volume=4e8)
+        return adr,local
+
+    def test_dual_listing_keeps_most_liquid_and_marks_the_other(self):
+        adr,local=self.dual_listing()
+        c.mark_duplicates([adr,local])
+        self.assertNotIn('duplicate_of',adr)
+        self.assertEqual(local['duplicate_of'],'BABA')
+
+    def test_duplicate_is_never_a_candidate_and_never_a_peer(self):
+        adr,local=self.dual_listing()
+        c.mark_duplicates([adr,local])
+        result=c.evaluate(local)
+        self.assertEqual((result['status'],result['eligible']),('duplicada',False))
+        others=self.peer_rows(['Japan']*5)
+        c.add_peers(others+[local])
+        self.assertEqual(others[0]['peer_count'],4)  # el duplicado no cuenta como comparable
+
+    def test_short_or_different_descriptions_are_not_duplicates(self):
+        a,b=copy.deepcopy(self.good),copy.deepcopy(self.good)
+        a.update(symbol='A',description_en='EMPRESA FICTICIA. Datos sinteticos.')
+        b.update(symbol='B',description_en='EMPRESA FICTICIA. Datos sinteticos.')
+        c.mark_duplicates([a,b])
+        self.assertNotIn('duplicate_of',b)
+        x,y=copy.deepcopy(self.good),copy.deepcopy(self.good)
+        x.update(symbol='X',description_en='Empresa uno. '*10); y.update(symbol='Y',description_en='Empresa dos distinta. '*10)
+        c.mark_duplicates([x,y])
+        self.assertNotIn('duplicate_of',y)
+
+    def test_peers_prefer_same_country(self):
+        rows=self.peer_rows(['Japan']*6)
+        c.add_peers(rows)
+        self.assertEqual((rows[0]['peer_scope'],rows[0]['peer_count']),('pais',5))
+
+    def test_peers_fall_back_to_region_not_world(self):
+        rows=self.peer_rows(['South Korea','Japan','Japan','Taiwan','Taiwan','Hong Kong'])
+        c.add_peers(rows)
+        self.assertEqual(rows[0]['peer_scope'],'region')  # 5 comparables de Asia-Pacifico
+        self.assertIsNotNone(rows[0]['sector_avg_pe'])
+
+    def test_peers_use_sector_in_region_as_last_resort(self):
+        rows=self.peer_rows(['Japan','South Korea','Taiwan','Japan','Taiwan','South Korea'])
+        for i,row in enumerate(rows):
+            row.update(industry=f'Industria {i}',sector='Technology')  # ninguna industria repetida
+        c.add_peers(rows)
+        self.assertEqual(rows[0]['peer_scope'],'sector_region')
+        rows[1]['sector']='Energy'  # con un comparable menos ya no llegan a cinco
+        c.add_peers(rows)
+        self.assertIsNone(rows[0]['peer_scope'])
+
+    def test_peers_never_cross_regions(self):
+        rows=self.peer_rows(['South Korea','Germany','Germany','France','France','Spain'])
+        c.add_peers(rows)
+        self.assertIsNone(rows[0]['peer_scope'])
+        self.assertIsNone(rows[0]['sector_avg_pe'])
+
     def test_growth_forecast(self):
         result=c.expected_growth({'avg':2,'low':1.9,'high':2.1,'numberOfAnalysts':6},
                                  {'avg':2.5,'low':2.4,'high':2.6,'numberOfAnalysts':4})
@@ -326,7 +426,7 @@ class ScreenerTests(unittest.TestCase):
     def test_bot_entrypoint_requests_pdf_and_send(self):
         with patch.object(s,'main',return_value=0) as main:
             s.generate_and_send_report()
-        main.assert_called_once_with(['--pdf','--enrich','--send'])
+        main.assert_called_once_with(['--universe','global','--pdf','--enrich','--send'])
 
     def test_bot_entrypoint_fails_loudly(self):
         with patch.object(s,'main',return_value=2):
@@ -404,6 +504,34 @@ class ScreenerTests(unittest.TestCase):
 
     def test_long_single_word_name_is_truncated_for_the_table(self):
         self.assertEqual(s.display_name({'longName':'Volkswagenwerke AG'},'0000.X'),'Volkswag.')
+
+    def universe_dir(self,d):
+        d=Path(d)
+        (d/'base.txt').write_text('AAPL\nMSFT # comentario\n',encoding='utf-8')
+        (d/'uni').mkdir()
+        (d/'uni'/'europa.txt').write_text('# Europa\nSAP.DE\nAAPL\n',encoding='utf-8')
+        (d/'uni'/'asia.txt').write_text('005930.KS\nNOVO-B.CO\n',encoding='utf-8')
+        return d
+
+    def test_universe_merges_without_duplicates(self):
+        with test_directory() as d:
+            d=self.universe_dir(d)
+            with patch.object(s,'WATCHLIST_FILE',str(d/'base.txt')),patch.object(s,'UNIVERSE_DIR',d/'uni'):
+                self.assertEqual(s.load_universe(['europa']),['AAPL','MSFT','SAP.DE'])
+                self.assertEqual(s.load_universe(['global']),['AAPL','MSFT','005930.KS','NOVO-B.CO','SAP.DE'])
+
+    def test_unknown_universe_is_rejected(self):
+        with test_directory() as d:
+            d=self.universe_dir(d)
+            with patch.object(s,'WATCHLIST_FILE',str(d/'base.txt')),patch.object(s,'UNIVERSE_DIR',d/'uni'):
+                with self.assertRaises(ValueError):
+                    s.load_universe(['marte'])
+
+    def test_bundled_universe_lists_are_valid_tickers(self):
+        symbols=s.load_universe(['global'])  # valida el formato de todas las listas incluidas
+        self.assertGreater(len(symbols),250)
+        self.assertIn('005930.KS',symbols)
+        self.assertEqual(len(symbols),len(set(symbols)))
 
     def test_csv_escapes_formulas(self):
         self.rows[0]['symbol']='=1+1'

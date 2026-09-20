@@ -155,22 +155,113 @@ def normalize(symbol, info, estimates, fx, now=None):
     return row
 
 
-def add_peers(rows):
-    """Mediana de otras empresas de la MISMA industria y país en la watchlist.
+MIN_DESCRIPTION_CHARS = 80  # descripciones mas cortas no identifican una empresa
 
-    No se sustituye por una media mundial cuando no hay comparables suficientes.
+
+def mark_duplicates(rows):
+    """Detecta la misma empresa cotizando en varias bolsas (ADR y local, doble cotizacion)
+    por su descripcion de negocio. Se conserva la cotizacion mas liquida; las demas quedan
+    con row['duplicate_of'] y no cuentan ni como candidatas ni como comparables."""
+    groups = {}
+    for row in rows:
+        row.pop('duplicate_of', None)
+        text = (row.get('description_en') or '').strip()
+        if len(text) >= MIN_DESCRIPTION_CHARS:
+            groups.setdefault(text[:200], []).append(row)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        keep = max(group, key=lambda r: (number(r.get('avg_dollar_volume')) or 0, r['symbol']))
+        for row in group:
+            if row is not keep:
+                row['duplicate_of'] = keep['symbol']
+    return rows
+
+
+MAX_STATEMENT_DAYS = 450  # un ejercicio anual mas antiguo no vale para reconstruir datos
+
+
+def fill_from_statements(row, statements, now=None):
+    """Reconstruye EPS, P/E y valor contable por accion desde los estados anuales
+    cuando Yahoo no los da en la ficha (p. ej. algunos valores coreanos). Solo si el
+    precio y las cuentas estan en la misma moneda y unidad: si no, deja el dato vacio.
+    Lo reconstruido queda marcado en row['derived']; es anual, no trailing 12 meses."""
+    now = now or datetime.now(UTC)
+    row.setdefault('derived', [])
+    quote, scale = quote_currency(row.get('currency'))
+    if scale != 1.0 or not quote or quote != row.get('financial_currency'):
+        return row
+    incomes = sorted((r for r in (statements or {}).get('income', []) if utc_date(r.get('date'))),
+                     key=lambda r: r['date'], reverse=True)
+    if not incomes or (now - utc_date(incomes[0]['date'])).days > MAX_STATEMENT_DAYS:
+        return row
+    latest = incomes[0]
+    if row.get('eps') is None:
+        eps = number(latest.get('Diluted EPS'))
+        if eps is not None:
+            row['eps'] = eps
+            row['derived'].append('eps')
+            if row.get('pe') is None and eps > 0 and positive(row.get('current_price')):
+                row['pe'] = row['current_price'] / eps
+                row['derived'].append('pe')
+    if row.get('book_value') is None:
+        balance = {r.get('date'): r for r in (statements or {}).get('balance', [])}.get(latest['date'], {})
+        equity, shares = number(balance.get('Stockholders Equity')), positive(latest.get('Diluted Average Shares'))
+        if equity is not None and shares:
+            row['book_value'] = equity / shares
+            row['derived'].append('book_value')
+    return row
+
+
+REGIONS = {
+    'Norteamerica': ('United States', 'Canada'),
+    'Europa': ('Germany', 'France', 'Netherlands', 'Spain', 'Italy', 'Switzerland', 'United Kingdom', 'Sweden',
+               'Denmark', 'Norway', 'Finland', 'Belgium', 'Ireland', 'Austria', 'Portugal', 'Luxembourg'),
+    'Asia-Pacifico': ('Japan', 'South Korea', 'Taiwan', 'Hong Kong', 'Singapore', 'Australia', 'New Zealand',
+                      'China', 'India', 'Indonesia', 'Thailand', 'Malaysia', 'Philippines', 'Vietnam'),
+    'Latinoamerica': ('Brazil', 'Mexico', 'Chile', 'Argentina', 'Colombia', 'Peru'),
+    'Oriente Medio y Africa': ('Israel', 'South Africa', 'Saudi Arabia', 'United Arab Emirates', 'Qatar'),
+}
+COUNTRY_REGION = {country: region for region, countries in REGIONS.items() for country in countries}
+
+
+def add_peers(rows):
+    """Mediana de otras empresas de la MISMA industria en la watchlist, ampliando el
+    alcance solo si hace falta: 1) misma industria y pais; 2) misma industria y region
+    (Europa, Asia-Pacifico...); 3) mismo SECTOR y region (comparacion mas gruesa).
+    'peer_scope' dice cual se uso ('pais', 'region', 'sector_region' o None si no hay
+    cinco comparables en ninguno).
+
+    No se sustituye por una media mundial: comparar sectores o mercados sin relacion
+    daria una referencia engañosa. Un alcance regional es menos preciso que uno de pais.
     """
     for row in rows:
-        peers = [p for p in rows if p['symbol'] != row['symbol'] and row.get('industry')
-                 and row.get('country') and p.get('industry') == row['industry']
-                 and p.get('country') == row['country'] and p.get('quote_type') == 'EQUITY'
-                 and p.get('quote_age_days') is not None and 0 <= p['quote_age_days'] <= MAX_QUOTE_DAYS
-                 and p.get('financial_age_days') is not None and 0 <= p['financial_age_days'] <= MAX_FINANCIAL_DAYS]
-        pes = [p['pe'] for p in peers if positive(p.get('pe'))]
-        margins = [p['operating_margin'] for p in peers if number(p.get('operating_margin')) is not None]
-        row['peer_count'] = len(pes)
-        row['sector_avg_pe'] = statistics.median(pes) if len(pes) >= MIN_PEERS else None
-        row['sector_avg_margin'] = statistics.median(margins) if len(margins) >= MIN_PEERS else None
+        row.update(peer_scope=None, peer_count=0, sector_avg_pe=None, sector_avg_margin=None)
+        if not row.get('industry') or not row.get('country'):
+            continue
+        region = COUNTRY_REGION.get(row['country'])
+        in_country = lambda p: p.get('country') == row['country']
+        in_region = lambda p: COUNTRY_REGION.get(p.get('country')) == region
+        # De mas a menos preciso: industria+pais, industria+region, sector+region.
+        scopes = [('pais', in_country, 'industry')]
+        if region:
+            scopes += [('region', in_region, 'industry')]
+            if row.get('sector'):
+                scopes += [('sector_region', in_region, 'sector')]
+        for index, (scope, same_area, group) in enumerate(scopes):
+            peers = [p for p in rows if p['symbol'] != row['symbol'] and p.get(group) == row[group]
+                     and not p.get('duplicate_of')
+                     and same_area(p) and p.get('quote_type') == 'EQUITY'
+                     and p.get('quote_age_days') is not None and 0 <= p['quote_age_days'] <= MAX_QUOTE_DAYS
+                     and p.get('financial_age_days') is not None and 0 <= p['financial_age_days'] <= MAX_FINANCIAL_DAYS]
+            pes = [p['pe'] for p in peers if positive(p.get('pe'))]
+            margins = [p['operating_margin'] for p in peers if number(p.get('operating_margin')) is not None]
+            if index == 0:
+                row['peer_count'] = len(pes)  # sin comparables suficientes queda el recuento del pais
+            if len(pes) >= MIN_PEERS:
+                row.update(peer_scope=scope, peer_count=len(pes), sector_avg_pe=statistics.median(pes),
+                           sector_avg_margin=statistics.median(margins) if len(margins) >= MIN_PEERS else None)
+                break
 
 
 def score(row):
@@ -248,6 +339,9 @@ def evaluate(row):
     if row['quality_ratio'] < .5:
         row['reasons'].append('Menos de 2 de 4 señales de calidad')
     row['strengths'] = [k for k,v in {**row['checks'], **row['quality_checks']}.items() if v is True]
+    if row.get('duplicate_of'):
+        row['eligible'], row['status'] = False, 'duplicada'
+        row['reasons'].append(f"Misma empresa que {row['duplicate_of']} (otra bolsa): se evalua solo esa cotizacion")
     return row
 
 

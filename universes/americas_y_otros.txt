@@ -1,0 +1,54 @@
+# Canada, Latinoamerica, Oriente Medio y Africa. Un ticker de Yahoo Finance por linea.
+# Lista escrita a mano, NO es un indice oficial completo: los que Yahoo no reconozca se registran como error.
+# Canada
+SHOP.TO
+RY.TO
+TD.TO
+ENB.TO
+CNQ.TO
+BNS.TO
+CP.TO
+CNR.TO
+BMO.TO
+SU.TO
+ATD.TO
+MFC.TO
+TRP.TO
+NTR.TO
+CSU.TO
+WCN.TO
+# Brasil
+VALE3.SA
+PETR4.SA
+ITUB4.SA
+BBDC4.SA
+ABEV3.SA
+WEGE3.SA
+B3SA3.SA
+BBAS3.SA
+RENT3.SA
+SUZB3.SA
+# Mexico y Chile
+AMXB.MX
+WALMEX.MX
+FEMSAUBD.MX
+GFNORTEO.MX
+CEMEXCPO.MX
+GMEXICOB.MX
+SQM-B.SN
+BSANTANDER.SN
+# Sudafrica
+NPN.JO
+SOL.JO
+FSR.JO
+SBK.JO
+AGL.JO
+MTN.JO
+BTI.JO
+# Israel y Arabia Saudi
+TEVA
+CHKP
+2222.SR
+1120.SR
+2010.SR
+7010.SR
