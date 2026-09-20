@@ -1,7 +1,10 @@
-yfinance
-requests
-python-dotenv
-pandas
-fpdf2
-deep-translator
-uharfbuzz
+# Python 3.10+. Versiones probadas en esta revisión.
+yfinance==1.7.0
+pandas==3.0.6; python_version >= "3.11"
+pandas>=2.2,<3; python_version < "3.11"
+requests==2.34.2
+python-dotenv==1.2.3
+fpdf2==2.8.8
+deep-translator==1.11.4
+uharfbuzz==0.56.1
+Pillow==12.3.0

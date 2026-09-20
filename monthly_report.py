@@ -22,6 +22,8 @@ from datetime import datetime, timedelta
 
 import yfinance as yf
 
+import forward_test
+
 from screener import (
     HAIRLINE,
     INDICE_BG,
@@ -347,6 +349,10 @@ def main() -> None:
         state["yearly"][year_key] = current_snapshot
 
     save_state(state)
+
+    # Prueba hacia adelante: que paso con las candidatas que el screener eligio
+    # (ver forward_test.py). Va al final: no debe impedir los informes anteriores.
+    forward_test.main(["--send"])
 
 
 if __name__ == "__main__":

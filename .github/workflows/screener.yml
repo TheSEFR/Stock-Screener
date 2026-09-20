@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r requirements.txt
-      - run: python screener.py
+      - run: python screener.py --universe global --pdf --enrich --send --only-changes
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -31,6 +31,15 @@ jobs:
           # igual que antes, sin el respaldo de estas fuentes adicionales.
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}
+      # Historico permanente de decisiones (candidatas de cada dia): lo lee
+      # forward_test.py desde el informe mensual. Sin esto se perderia al
+      # acabar cada ejecucion.
+      - name: Guardar historico de decisiones
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/decisiones.jsonl
+          git diff --staged --quiet || (git commit -m "chore: guardar decisiones del dia" && git push)
       # Ademas de enviarse a Telegram, se guarda como artifact descargable
       # desde la pestaña Actions (util para depurar sin depender de Telegram).
       # if: always() -> se sube aunque el paso anterior falle (ej. Telegram
@@ -39,7 +48,8 @@ jobs:
         if: always()
         with:
           name: informe-pdf
-          path: InformeFinanciero_*.pdf
+          # informes/ = PDF + resultados.csv/json + snapshot.json (ver README)
+          path: informes/
           retention-days: 14
           if-no-files-found: ignore
       # Ademas del artifact, publica el PDF en una rama dedicada
@@ -52,7 +62,7 @@ jobs:
       - name: Publicar el PDF en la rama informe-latest
         if: always()
         run: |
-          FILE=$(ls InformeFinanciero_*.pdf 2>/dev/null | head -1)
+          FILE=$(ls informes/InformeFinanciero_*.pdf 2>/dev/null | head -1)
           if [ -n "$FILE" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
