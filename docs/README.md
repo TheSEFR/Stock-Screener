@@ -122,3 +122,7 @@ Sigue sin existir un backtest: la rentabilidad de las reglas no está demostrada
 - **Empresas duplicadas** (ADR y cotización local, doble cotización): se detectan por la descripción del negocio, se evalúa la cotización más líquida y la otra queda con estado `duplicada`, sin contar como candidata ni como comparable.
 - **Datos reconstruidos** (`derived`): si Yahoo no da EPS, P/E o valor contable en la ficha (p. ej. algunos valores coreanos), se reconstruyen desde los estados anuales solo si el precio y las cuentas están en la misma moneda. Es un EPS **anual**, no de los últimos 12 meses, así que el P/E puede estar desfasado.
 - **Yahoo** cubre bien los principales mercados del mundo pero sin garantías; el contraste con SEC solo cubre emisores de EEUU.
+
+## Sección 7: mayor potencial según analistas
+
+Siempre aparece en el PDF, haya o no candidatas. Muestra las 10 acciones cuyo **precio objetivo medio de los analistas** (Yahoo) está más por encima del precio actual (`top_potential` en `screener.py`), con al menos 5 opiniones, cotización de menos de 7 días, sin duplicadas y con un potencial de hasta +200% (por encima suele ser un error de datos o de moneda). **El potencial es la opinión de los analistas, no una predicción**: esta lista no pasa el filtro y puede incluir acciones descartadas por riesgo (columna FR). Los analistas tienden a ser optimistas y a copiarse entre sí, y un potencial alto suele ir con más riesgo. La columna `Analy` cuenta analistas de EPS; el mínimo de 5 se aplica a las opiniones sobre el precio objetivo, que pueden ser otras.

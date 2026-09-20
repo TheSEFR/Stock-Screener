@@ -502,6 +502,28 @@ class ScreenerTests(unittest.TestCase):
         self.assertEqual(s.shown_name({'symbol':'AAPL','name':'AAPL'}),'AAPL')
         self.assertEqual(s.shown_name({'symbol':'AAPL'}),'AAPL')
 
+    def test_large_prices_have_no_decimals_so_the_table_does_not_wrap(self):
+        self.assertEqual(s.fmt_price(261000.0),'261.000')
+        self.assertEqual(s.fmt_price(12.5),'12,50')
+        self.assertEqual(s.fmt_price(None),'n/d')
+
+    def test_colliding_numeric_names_use_two_words(self):
+        rows=[{'symbol':'012330.KS','name':'Hyundai'},{'symbol':'005380.KS','name':'Hyundai'},{'symbol':'AAPL','name':'AAPL'}]
+        infos=[{'longName':'Hyundai Mobis Co.,Ltd'},{'longName':'Hyundai Motor Company'},{}]
+        s.disambiguate_names(rows,infos)
+        self.assertEqual([r['name'] for r in rows],['Hyundai Mob.','Hyundai Mot.','AAPL'])
+
+    def test_same_first_word_keeps_it_whole_with_minimal_extra_letters(self):
+        rows=[{'symbol':f'00{i}.KS','name':'Samsung'} for i in range(3)]
+        infos=[{'longName':'Samsung Electronics Co., Ltd.'},{'longName':'Samsung SDI Co., Ltd.'},{'longName':'Samsung Biologics Co., Ltd.'}]
+        s.disambiguate_names(rows,infos)
+        self.assertEqual([r['name'] for r in rows],['Samsung E.','Samsung S.','Samsung B.'])
+
+    def test_unique_numeric_name_is_left_alone(self):
+        rows=[{'symbol':'005930.KS','name':'Samsung'},{'symbol':'000270.KS','name':'Kia'}]
+        s.disambiguate_names(rows,[{'longName':'Samsung Electronics Co., Ltd.'},{'longName':'Kia Corporation'}])
+        self.assertEqual([r['name'] for r in rows],['Samsung','Kia'])
+
     def test_long_single_word_name_is_truncated_for_the_table(self):
         self.assertEqual(s.display_name({'longName':'Volkswagenwerke AG'},'0000.X'),'Volkswag.')
 
@@ -532,6 +554,36 @@ class ScreenerTests(unittest.TestCase):
         self.assertGreater(len(symbols),250)
         self.assertIn('005930.KS',symbols)
         self.assertEqual(len(symbols),len(set(symbols)))
+
+    def potential_rows(self):
+        rows=[]
+        for symbol,upside in (('LOW',.10),('HIGH',.80),('MID',.40),('FEW',.90),('DUP',.95),('WILD',3.5),('OLD',.85),('DOWN',-.2)):
+            row=copy.deepcopy(self.good)
+            row.update(symbol=symbol,upside=upside,analyst_opinions=8,quote_age_days=1,quote_type='EQUITY')
+            rows.append(row)
+        by={r['symbol']:r for r in rows}
+        by['FEW']['analyst_opinions']=3      # pocas opiniones
+        by['DUP']['duplicate_of']='HIGH'     # misma empresa en otra bolsa
+        by['OLD']['quote_age_days']=20       # cotizacion vieja
+        return rows
+
+    def test_top_potential_orders_by_analyst_upside_and_applies_reliability_filters(self):
+        symbols=[r['symbol'] for r in s.top_potential(self.potential_rows())]
+        self.assertEqual(symbols,['HIGH','MID','LOW'])  # sin FEW, DUP, WILD (>200%), OLD ni DOWN (negativo)
+
+    def test_top_potential_is_capped_and_empty_is_ok(self):
+        self.assertEqual(len(s.top_potential(self.potential_rows(),n=2)),2)
+        self.assertEqual(s.top_potential([]),[])
+
+    def test_pdf_includes_potential_section_even_without_it(self):
+        info=self.snapshot['records'][0]['info']
+        with_target=copy.deepcopy(self.snapshot)
+        for record in with_target['records']:
+            record['info'].update(targetMeanPrice=30,numberOfAnalystOpinions=8)
+        for label,snapshot in (('sin',self.snapshot),('con',with_target)):
+            with self.subTest(label),test_directory() as d,patch.object(s,'demo_snapshot',return_value=copy.deepcopy(snapshot)):
+                self.assertEqual(s.main(['--demo','--pdf','--output',str(d)]),0)
+                self.assertTrue(list(Path(d).glob('InformeFinanciero_*.pdf')))
 
     def test_csv_escapes_formulas(self):
         self.rows[0]['symbol']='=1+1'

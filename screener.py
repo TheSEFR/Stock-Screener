@@ -284,6 +284,36 @@ def display_name(info: dict, symbol: str) -> str:
     return name
 
 
+def fmt_price(value) -> str:
+    """Precio para la tabla: sin decimales desde 10.000 (wones, yenes...), porque con ellos la
+    celda no cabe en una linea y descuadra toda la tabla (ver SUMMARY_WIDTHS)."""
+    if not value:
+        return "n/d"
+    return fmt_es(value, 0 if value >= 10_000 else 2)
+
+
+def disambiguate_names(rows, infos):
+    """Si dos tickers numericos acaban con el mismo nombre corto (Hyundai Mobis y Hyundai Motor
+    salen ambos 'Hyundai'), usa dos palabras del nombre para poder distinguirlos en la tabla."""
+    groups = {}
+    for row, info in zip(rows, infos):
+        if row['symbol'][:1].isdigit():
+            groups.setdefault(row['name'].lower(), []).append((row, info))
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        words = [re.split(r"[\s,]+", (info.get('longName') or info.get('shortName') or '').strip()) for _, info in group]
+        if any(len(w) < 2 or not w[1] for w in words):
+            continue
+        for k in range(1, 6):  # letras minimas de la 2a palabra para que sean todas distintas
+            names = [f"{w[0][:7]} {w[1][:k]}" + ('.' if len(w[1]) > k else '') for w in words]
+            if len(set(n.lower() for n in names)) == len(names):
+                for (row, _), name in zip(group, names):
+                    row['name'] = name
+                break
+    return rows
+
+
 def shown_name(row: dict) -> str:
     """Como mostrar una accion en fichas, indice y titulos: el nombre si el
     ticker es solo un codigo numerico (Samsung), con el codigo entre
@@ -435,6 +465,7 @@ def analyze(symbols):
         rows.append(row)
         snapshots.append(record)
         time.sleep(.25)
+    disambiguate_names(rows, [r['info'] for r in snapshots])
     core.mark_duplicates(rows)
     core.add_peers(rows)
     for row in rows:
@@ -495,6 +526,27 @@ def passes_strict_filter(r):
 
 def rank_top(rows, n=TOP_N, strict=True):
     return core.rank(rows, n, strict)
+
+
+POTENTIAL_TOP_N = 10
+MIN_POTENTIAL_ANALYSTS = 5   # con menos opiniones el precio objetivo es poco fiable
+MAX_PLAUSIBLE_UPSIDE = 2.0   # +200%: por encima suele ser un error de moneda o de datos
+
+
+def top_potential(rows, n=POTENTIAL_TOP_N):
+    """Las n acciones con mayor distancia entre el precio objetivo medio de los analistas y
+    el precio actual, con al menos MIN_POTENTIAL_ANALYSTS opiniones y cotizacion reciente.
+    NO pasa por el filtro estricto (puede incluir acciones descartadas por riesgo) y NO es una
+    prediccion: es lo que opinan los analistas. Se muestra siempre, haya o no candidatas."""
+    usable = []
+    for row in rows:
+        upside, opinions, age = row.get('upside'), row.get('analyst_opinions'), row.get('quote_age_days')
+        if (upside is None or not 0 < upside <= MAX_PLAUSIBLE_UPSIDE or (opinions or 0) < MIN_POTENTIAL_ANALYSTS
+                or age is None or not 0 <= age <= core.MAX_QUOTE_DAYS or row.get('duplicate_of')
+                or row.get('quote_type') != 'EQUITY'):
+            continue
+        usable.append(row)
+    return sorted(usable, key=lambda r: (-r['upside'], r['symbol']))[:max(0, n)]
 
 
 TRANSLATION_ERROR_MARKERS = (
@@ -926,8 +978,8 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             row = table.row()
             row.cell(str(i))
             row.cell(o["name"])
-            row.cell(fmt_es(o["current_price"]) if o["current_price"] else "n/d")
-            row.cell(fmt_es(o["target_price"]) if o["target_price"] else "n/d")
+            row.cell(fmt_price(o["current_price"]))
+            row.cell(fmt_price(o["target_price"]))
             row.cell(fmt_pct(o["upside"] * 100, signed=True) if o["upside"] is not None else "n/d")
             row.cell(sanitize(country_abbr(o["country"])))
             row.cell(sanitize(sector_abbr(o["sector"])))
@@ -1127,6 +1179,7 @@ def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
     fake_outline += [section(f"P{i}", 1) for i in range(n_trump)]
     fake_outline.append(section("Noticias recientes", 0))
     fake_outline.append(section("Oportunidades con margen de seguridad", 0))
+    fake_outline.append(section("Mayor potencial segun analistas", 0))
     fake_outline.append(section("Glosario de variables", 0))
 
     scratch = ReportPDF(orientation="L", format="A4")
@@ -1296,7 +1349,8 @@ def draw_cover_page(pdf: FPDF, title_text: str) -> None:
     pdf.page_background = None
 
 
-def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None) -> str:
+def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], rows: list[dict], avg_pe: float | None,
+              potential: list[dict] | None = None) -> str:
     avg_txt = fmt_es(avg_pe, 1) if avg_pe else "n/d"
     coverage = Counter(region_for(r["country"]) for r in rows)
     coverage_txt = " - ".join(f"{region}: {n}" for region, n in coverage.most_common())
@@ -1542,12 +1596,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.ln(2)
 
     render_conviction_pdf(pdf, rows)
+    render_potential_pdf(pdf, potential or [], glossary_links)
 
-    # --- Seccion 7: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 8: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 7", "7. Glosario de variables")
+    section_header(pdf, "Seccion 8", "8. Glosario de variables")
     for name, explanation in GLOSSARY:
         # Mantener el encabezado junto a las primeras líneas de su explicación.
         if pdf.get_y() + 22 > pdf.h - pdf.b_margin:
@@ -1639,10 +1694,12 @@ def replay(snapshot):
     rates=snapshot['fx_rates']
     rows=[core.normalize(r['symbol'],r['info'],r.get('estimates',{}),rates.get,as_of) for r in snapshot['records']]
     for row,record in zip(rows,snapshot['records']):
+        row['name']=display_name(record['info'],record['symbol'])
         core.fill_from_statements(row,record.get('statements'),as_of)
     if len({r['symbol'] for r in rows}) != len(rows):
         raise ValueError('Snapshot con tickers duplicados')
     core.mark_duplicates(rows)
+    disambiguate_names(rows,[r['info'] for r in snapshot['records']])
     core.add_peers(rows)
     inputs={r['symbol']:r for r in snapshot['records']}
     for row in rows:
@@ -1686,6 +1743,27 @@ def write_reports(rows, errors, snapshot, output):
             # Evita fórmulas al abrir textos externos en Excel.
             entry={k:("'"+v if isinstance(v,str) and v.startswith(('=','+','-','@')) else v) for k,v in entry.items()}
             writer.writerow(entry)
+
+def render_potential_pdf(pdf, potential, glossary_links):
+    """Seccion 7: acciones con mayor distancia al precio objetivo de los analistas. Va siempre,
+    aunque no haya candidatas, y avisa de que NO es una prediccion ni una recomendacion."""
+    pdf.add_page()
+    pdf.start_section('Mayor potencial segun analistas')
+    section_header(pdf,'Seccion 7','7. Mayor potencial segun analistas')
+    pdf.set_font('Helvetica',size=9)
+    pdf.multi_cell(pdf.epw,5,sanitize(
+        f'Las {POTENTIAL_TOP_N} acciones cuyo precio objetivo medio de analistas (Yahoo Finance) esta mas por encima del '
+        f'precio actual, con al menos {MIN_POTENTIAL_ANALYSTS} opiniones, cotizacion reciente y un potencial no superior al '
+        f'{MAX_PLAUSIBLE_UPSIDE:.0%} (por encima suele ser un error de datos o de moneda). ATENCION: el potencial es la opinion '
+        'de los analistas, no una prediccion ni una recomendacion. Esta lista NO pasa el filtro del informe: mira Score, '
+        'Calidad y FR de cada fila. Los analistas tienden a ser optimistas y a copiarse entre si, y un potencial alto '
+        'suele ir con mas riesgo. El plazo del precio objetivo es de unos 12 meses.'),new_x='LMARGIN',new_y='NEXT')
+    pdf.ln(3)
+    if not potential:
+        pdf.multi_cell(pdf.epw,6,'Ninguna accion cumple hoy estas condiciones.',new_x='LMARGIN',new_y='NEXT')
+        return
+    render_summary_table(pdf,potential,glossary_links,section_bg=SECTION56_BG)
+
 
 def render_conviction_pdf(pdf, rows):
     pdf.add_page()
@@ -1800,7 +1878,7 @@ def main(argv=None):
         top=rank_top(rows)
         small=rank_top([r for r in rows if is_small_cap(r)])
         thematic=rank_top([r for r in rows if r['symbol'] in TRUMP_TRADE_THEMES],strict=False)
-        path=Path(build_pdf(top,small,thematic,rows,None))
+        path=Path(build_pdf(top,small,thematic,rows,None,potential=top_potential(rows)))
     if args.send:
         if args.only_changes and not has_changes:
             print('Sin cambios relevantes desde la decisión anterior: no se envía el informe.')
