@@ -50,6 +50,7 @@ from urllib.parse import urlencode
 import screener_core as core
 import conviction
 import alerts
+import explain
 import forward_test
 import reconcile
 import sector_models
@@ -496,7 +497,7 @@ def analyze(symbols):
             valuation=row['valuation']
             valuation['conviction_reasons'].append('Discrepancia entre Yahoo y SEC en ingresos o beneficio')
             if valuation['conviction']=='prioridad_alta_para_estudio':
-                valuation['conviction']='revisar_calidad'
+                valuation['conviction']='revisar_historial'
     analyze.errors, analyze.snapshot = errors, {'as_of':now.isoformat(), 'fx_rates':rates, 'records':snapshots}
     valid = [r['pe'] for r in rows if r['pe']]
     return rows, statistics.mean(valid) if valid else None
@@ -640,7 +641,7 @@ def sanitize(text: str) -> str:
     return text.encode("latin-1", errors="ignore").decode("latin-1")
 
 
-GLOSSARY = [('Score', 'Aciertos sobre 4 criterios fijos: descuento P/E del 20% frente a mediana de otros pares, FCF yield >=5%, EPS FY+1/FY0 >=15% con estimaciones suficientes e ingresos >=5%. Un dato ausente no aumenta el score. Se exige 3/4, calidad >=2/4 y 7/8 criterios disponibles. Orden: 55% valor/crecimiento +45% calidad. Heurística sin backtest.'), ('P/E', 'Precio/beneficio trailing positivo. Referencia: mediana de al menos cinco OTRAS empresas de la misma industria y país, con fechas verificables, presentes en la watchlist. No es un benchmark sectorial exhaustivo. Sin pares suficientes queda sin dato. P/E bajo no implica infravaloración.'), ('PEG', 'P/E trailing / porcentaje de crecimiento estimado FY+1 frente a FY0. Solo orientativo: mezcla beneficio histórico y estimación futura, no es PEG plurianual estándar. No puntúa, para no duplicar crecimiento. No se calcula sobre pérdidas, crecimiento >100% ni estimaciones insuficientes.'), ('Crecim.', 'EPS medio estimado FY+1 / EPS medio FY0 -1. Yahoo earnings_estimate, filas 0y y +1y; FMP stable como respaldo ordenado por cierre fiscal. No se interpreta earningsGrowth como consenso. Se requieren EPS positivos, mínimo tres analistas en ambos periodos y rango alto-bajo <=50% del EPS medio. Fechas de actualización individuales no disponibles; confirmar con fuente primaria.'), ('Insider buy', 'Compras P de valores no derivados según Form 4 SEC, con fecha de operación dentro de 90 días. P incluye mercado abierto O compra privada: no permite afirmar compra exclusivamente en bolsa. No suma puntos ni demuestra rentabilidad. N/D incluye fallo de red, ventana incompleta y falta de User-Agent. No significa ausencia de operaciones. No reconcilia enmiendas.'), ('Rec', 'Etiqueta del consenso Yahoo, sin factor de puntuación. No se usa FMP grade como sustituto de consenso. CF/CN/NC son etiquetas del proveedor, no recomendaciones propias.'), ('CF', "= Compra Fuerte. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan buy/strong buy sobre la accion."), ('CN', "= Compra Neutral. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan hold (ni comprar ni vender)."), ('NC', "= No Comprar. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan underperform/sell."), ('Bancos', 'Última nota disponible por firma, filtrada a 90 días, que conserva una calificación positiva. Una compra antigua revocada por una rebaja posterior no se incluye. La lista no es consenso completo ni factor del score.'), ('Sentimiento noticia', 'No se infiere impacto bursátil con coincidencias de palabras. Se muestran titulares fechados en los últimos siete días; contexto y efecto quedan sin evaluar.'), ('Precio', 'Último precio entregado por el proveedor, que puede tener retraso. La fecha de cotización se guarda en JSON/HTML. No se afirma que sea una cotización en tiempo real.'), ('P.OBJ', "Precio objetivo medio segun el consenso de analistas (campo targetMeanPrice de Yahoo Finance, mismo modulo que 'Crecim.' y 'Rec'). Igual que esos campos, depende de la cobertura de analistas: mas fiable con mucha cobertura, mas ruidoso o ausente (n/d) con poca. NO es una prediccion propia de este informe. HORIZONTE TEMPORAL (importante, NO es 'hasta el 31 de diciembre' ni un reloj que arranca el dia de este informe): por convencion de Wall Street, un 'price target' es a ~12 MESES desde que ESE analista publico su nota — no desde hoy. Yahoo agrega los targets de varios analistas que publicaron sus notas en fechas distintas (uno hace 2 semanas, otro hace 3 meses), asi que 'P.Objetivo' es una media de estimaciones a ~12 meses desde momentos ligeramente distintos, no un plazo fijo idéntico para todas. En cualquier caso, nunca es una proyeccion a 5 o 10 años."), ('Potencial', "Diferencia porcentual entre 'P.Objetivo' y 'Precio': cuanto subiria (o bajaria) la accion si alcanzase el precio objetivo de consenso EN ~12 MESES (ver horizonte temporal en 'P.Objetivo'). Positivo no garantiza subida real, es solo la distancia a la expectativa actual de los analistas a un año vista, con las mismas limitaciones de cobertura que 'P.Objetivo'."), ('Cap.', 'La tabla muestra capitalización en unidad principal de la moneda de cotización. Para small caps se convierte a USD; umbral 2.000 millones USD. GBP/GBp y otras subunidades se normalizan para volumen. Discrepancias frente a precio por acciones >25% se remiten a revisión (ADR/clases/unidades).'), ('Analy', 'Mínimo de analistas de EPS en FY0 y FY+1, no el número de recomendaciones bursátiles. Se exigen tres y dispersión acotada para usar crecimiento. Más analistas no garantiza acierto.'), ('Calidad', 'Cuatro reglas heurísticas, NO Piotroski F-Score: ROE >=15%, margen positivo >=mediana de pares, deuda/patrimonio entre 0 y 100%, current ratio >=1,5. Denominador fijo cuatro. No se usan estos umbrales para recomendar banca, seguros o inmobiliario: requieren otro modelo.'), ('ROE', 'Return on Equity (retorno sobre el patrimonio neto): beneficio neto dividido entre el patrimonio de los accionistas. Mide que tan eficiente es la empresa generando beneficio con el capital que ya tiene, sin depender de mas deuda o mas emision de acciones. Por encima del 15% se considera bueno en este informe. Fuente: Yahoo Finance (financialData).'), ('Margen operativo', 'Resultado operativo/ingresos. Se exige positivo y se compara con mediana de al menos cinco otros pares de industria/país en la watchlist. No hay sustitución por media mundial.'), ('Deuda/Patrimonio', 'Deuda total dividida entre el patrimonio neto, en porcentaje (100 = la empresa debe tanto como vale su patrimonio). Por debajo de 100 se considera apalancamiento conservador en este informe: menos riesgo de que una subida de tipos de interes o una mala racha ahogue a la empresa. Fuente: Yahoo Finance (financialData).'), ('Liquidez', 'Current ratio: activo corriente dividido entre pasivo corriente, es decir cuantas veces puede la empresa cubrir sus deudas de corto plazo con lo que tiene a mano. Por encima de 1.5 se considera comodo en este informe; por debajo de 1 significa que el activo corriente no llega a cubrir el pasivo corriente. Fuente: Yahoo Finance (financialData).'), ('FCL', 'FCF en moneda de los estados convertido a USD / capitalización en USD. Sin moneda o cambio verificable no se calcula. Se exige FCF positivo y >=5% suma una señal. Un periodo de caja excepcional puede engañar: validar normalización plurianual.'), ('FR', 'OK: datos esenciales presentes y verificables; Alto: riesgo medido incumple; Revisar: faltan datos, están fuera de plazo, instrumento no compatible o modelo sectorial no aplicable. Se bloquean pérdidas, EBITDA/FCF/margen/patrimonio no positivos, deuda neta/EBITDA >4 y liquidez <1 millón USD/día. Cotización <=7 días; cierre financiero <=180 días. No cubre todos los riesgos.'), ('Cesta Trump trade', 'Lista temática estática heredada del archivo original, sin validación de su vigencia política. Solo informativa: strict=False puede mostrar descartadas y datos insuficientes. No se considera selección de oportunidades ni patrimonio personal.'), ('F.Y.', 'Cierre fiscal estimado según proveedor; no es la fecha de publicación de resultados.')]
+GLOSSARY = [('Score', 'Aciertos sobre 4 criterios fijos: descuento P/E del 20% frente a mediana de otros pares, FCF yield >=5%, EPS FY+1/FY0 >=15% con estimaciones suficientes e ingresos >=5%. Un dato ausente no aumenta el score. Se exige 3/4, calidad >=2/4 y 7/8 criterios disponibles. Orden: 55% valor/crecimiento +45% calidad. Heurística sin backtest.'), ('P/E', 'Precio/beneficio trailing positivo. Referencia: mediana de al menos cinco OTRAS empresas de la misma industria y país, con fechas verificables, presentes en la watchlist. No es un benchmark sectorial exhaustivo. Sin pares suficientes queda sin dato. P/E bajo no implica infravaloración.'), ('PEG', 'P/E trailing / porcentaje de crecimiento estimado FY+1 frente a FY0. Solo orientativo: mezcla beneficio histórico y estimación futura, no es PEG plurianual estándar. No puntúa, para no duplicar crecimiento. No se calcula sobre pérdidas, crecimiento >100% ni estimaciones insuficientes.'), ('Crecim.', 'EPS medio estimado FY+1 / EPS medio FY0 -1. Yahoo earnings_estimate, filas 0y y +1y; FMP stable como respaldo ordenado por cierre fiscal. No se interpreta earningsGrowth como consenso. Se requieren EPS positivos, mínimo tres analistas en ambos periodos y rango alto-bajo <=50% del EPS medio. Fechas de actualización individuales no disponibles; confirmar con fuente primaria.'), ('Insider buy', 'Compras P de valores no derivados según Form 4 SEC, con fecha de operación dentro de 90 días. P incluye mercado abierto O compra privada: no permite afirmar compra exclusivamente en bolsa. No suma puntos ni demuestra rentabilidad. N/D incluye fallo de red, ventana incompleta y falta de User-Agent. No significa ausencia de operaciones. No reconcilia enmiendas.'), ('Rec', 'Etiqueta del consenso Yahoo, sin factor de puntuación. No se usa FMP grade como sustituto de consenso. CF/CN/NC son etiquetas del proveedor, no recomendaciones propias.'), ('CF', "= Compra Fuerte. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan buy/strong buy sobre la accion."), ('CN', "= Compra Neutral. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan hold (ni comprar ni vender)."), ('NC', "= No Comprar. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan underperform/sell."), ('Bancos', 'Última nota disponible por firma, filtrada a 90 días, que conserva una calificación positiva. Una compra antigua revocada por una rebaja posterior no se incluye. La lista no es consenso completo ni factor del score.'), ('Sentimiento noticia', 'No se infiere impacto bursátil con coincidencias de palabras. Se muestran titulares fechados en los últimos siete días; contexto y efecto quedan sin evaluar.'), ('Precio', 'Último precio entregado por el proveedor, que puede tener retraso. La fecha de cotización se guarda en JSON/HTML. No se afirma que sea una cotización en tiempo real.'), ('P.OBJ', "Precio objetivo medio segun el consenso de analistas (campo targetMeanPrice de Yahoo Finance, mismo modulo que 'Crecim.' y 'Rec'). Igual que esos campos, depende de la cobertura de analistas: mas fiable con mucha cobertura, mas ruidoso o ausente (n/d) con poca. NO es una prediccion propia de este informe. HORIZONTE TEMPORAL (importante, NO es 'hasta el 31 de diciembre' ni un reloj que arranca el dia de este informe): por convencion de Wall Street, un 'price target' es a ~12 MESES desde que ESE analista publico su nota — no desde hoy. Yahoo agrega los targets de varios analistas que publicaron sus notas en fechas distintas (uno hace 2 semanas, otro hace 3 meses), asi que 'P.Objetivo' es una media de estimaciones a ~12 meses desde momentos ligeramente distintos, no un plazo fijo idéntico para todas. En cualquier caso, nunca es una proyeccion a 5 o 10 años."), ('Potencial', "Diferencia porcentual entre 'P.Objetivo' y 'Precio': cuanto subiria (o bajaria) la accion si alcanzase el precio objetivo de consenso EN ~12 MESES (ver horizonte temporal en 'P.Objetivo'). Positivo no garantiza subida real, es solo la distancia a la expectativa actual de los analistas a un año vista, con las mismas limitaciones de cobertura que 'P.Objetivo'."), ('Cap.', 'La tabla muestra capitalización en unidad principal de la moneda de cotización. Para small caps se convierte a USD; umbral 2.000 millones USD. GBP/GBp y otras subunidades se normalizan para volumen. Discrepancias frente a precio por acciones >25% se remiten a revisión (ADR/clases/unidades).'), ('Analy', 'Mínimo de analistas de EPS en FY0 y FY+1, no el número de recomendaciones bursátiles. Se exigen tres y dispersión acotada para usar crecimiento. Más analistas no garantiza acierto.'), ('Calidad', 'Cuatro reglas heurísticas, NO Piotroski F-Score: ROE >=15%, margen positivo >=mediana de pares, deuda/patrimonio entre 0 y 100%, current ratio >=1,5. Denominador fijo cuatro. No se usan estos umbrales para recomendar banca, seguros o inmobiliario: requieren otro modelo.'), ('ROE', 'Return on Equity (retorno sobre el patrimonio neto): beneficio neto dividido entre el patrimonio de los accionistas. Mide que tan eficiente es la empresa generando beneficio con el capital que ya tiene, sin depender de mas deuda o mas emision de acciones. Por encima del 15% se considera bueno en este informe. Fuente: Yahoo Finance (financialData).'), ('Margen operativo', 'Resultado operativo/ingresos. Se exige positivo y se compara con mediana de al menos cinco otros pares de industria/país en la watchlist. No hay sustitución por media mundial.'), ('Deuda/Patrimonio', 'Deuda total dividida entre el patrimonio neto, en porcentaje (100 = la empresa debe tanto como vale su patrimonio). Por debajo de 100 se considera apalancamiento conservador en este informe: menos riesgo de que una subida de tipos de interes o una mala racha ahogue a la empresa. Fuente: Yahoo Finance (financialData).'), ('Liquidez', 'Current ratio: activo corriente dividido entre pasivo corriente, es decir cuantas veces puede la empresa cubrir sus deudas de corto plazo con lo que tiene a mano. Por encima de 1.5 se considera comodo en este informe; por debajo de 1 significa que el activo corriente no llega a cubrir el pasivo corriente. Fuente: Yahoo Finance (financialData).'), ('FCL', 'FCF en moneda de los estados convertido a USD / capitalización en USD. Sin moneda o cambio verificable no se calcula. Se exige FCF positivo y >=5% suma una señal. Un periodo de caja excepcional puede engañar: validar normalización plurianual.'), ('FR', 'OK: datos esenciales presentes y verificables; Alto: riesgo medido incumple; Revisar: faltan datos, están fuera de plazo, instrumento no compatible o modelo sectorial no aplicable. Se bloquean pérdidas, EBITDA/FCF/margen/patrimonio no positivos, deuda neta/EBITDA >4 y liquidez <1 millón USD/día. Cotización <=7 días; cierre financiero <=180 días. No cubre todos los riesgos.'), ('Cesta Trump trade', 'Lista temática estática heredada del archivo original, sin validación de su vigencia política. Solo informativa: strict=False puede mostrar descartadas y datos insuficientes. No se considera selección de oportunidades ni patrimonio personal.'), ('Est.', 'Estado de la acción según el filtro: C = candidata (pasa el filtro), R = revisar (faltan datos para juzgarla), D = descartada por riesgo medido (pérdidas, deuda alta, poca liquidez...), N = no cumple los mínimos, X = duplicada (misma empresa en otra bolsa). Pulsa la letra para ir a la sección 8, donde se explica el motivo en palabras normales. Un estado no es una recomendación.'), ('F.Y.', 'Cierre fiscal estimado según proveedor; no es la fecha de publicación de resultados.')]
 
 # Paleta institucional (inspirada en el formato tipico de notas de analisis
 # de bancos de inversion: navy + sans-serif + tablas con cabecera solida,
@@ -768,8 +769,8 @@ MAX_FICHA_SPACING = 40
 MAX_TABLE_ROW_HEIGHT = 12
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.OBJ", "Potencial", "Pais", "Sector", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Rec", "F.Y."]
-SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Rec", "F.Y."}
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.OBJ", "Potencial", "Pais", "Sector", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Est.", "Rec", "F.Y."]
+SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Est.", "Rec", "F.Y."}
 # Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
 # mas largo que debe caber sin partirse en cada columna, mas los 2mm que
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
@@ -791,10 +792,11 @@ SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "
 # valor abreviado) + 2mm de margen interno de celda. Suma total 187,6mm.
 # FCL (ej. "12,3%" o "-4,5%") y FR ("OK"/"Alto"/"n/d") se añadieron despues:
 # 9.5 y 8.0 mm, mismo criterio (texto mas largo + 2mm de margen). Suma 205,1mm.
-SUMMARY_WIDTHS = (5.1, 16.6, 12.2, 12.2, 14.6, 8.1, 15.0, 10.9, 9.7, 9.8, 12.2, 9.1, 8.0, 12.3, 17.1, 9.5, 8.0, 7.2, 9.1)
+# Est. (una letra: C/R/D/N/X) se añadio despues: 6.4 mm, con enlace a la seccion 8.
+SUMMARY_WIDTHS = (5.1, 16.6, 12.2, 12.2, 14.6, 9.6, 15.0, 10.9, 9.7, 9.8, 12.2, 9.1, 8.0, 12.3, 17.1, 9.5, 8.0, 6.4, 7.2, 9.1)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "R", "C", "L", "L"]
+SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "R", "C", "C", "L", "L"]
 
 # Pais/sector abreviados (pedido explicito: nada de nombres largos que
 # obliguen a estirar la tabla o dejen huecos). Fallback: primeras 3-4
@@ -930,7 +932,8 @@ def render_table(
                 row.cell(cell_val)
 
 
-def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, section_bg: tuple[int, int, int]) -> None:
+def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, section_bg: tuple[int, int, int],
+                         status_links: dict | None = None) -> None:
     """Tabla neutra (cabecera gris muy claro, texto negro): el navy se
     reserva para el logo y los enlaces, no se reparte por toda la tabla.
     Zebra en dos tonos de azul derivados del propio fondo de la seccion
@@ -994,6 +997,7 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
             row.cell(fmt_pct(o["fcf_yield"] * 100) if o.get("fcf_yield") is not None else "n/d")
             row.cell(risk_label(o))
+            row.cell(explain.state_letter(o), link=(status_links or {}).get(o["symbol"]))  # salta a la explicacion (seccion 8)
             row.cell(o["recommendation"])
             row.cell(o["fiscal_year_end"])
 
@@ -1180,6 +1184,7 @@ def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
     fake_outline.append(section("Noticias recientes", 0))
     fake_outline.append(section("Oportunidades con margen de seguridad", 0))
     fake_outline.append(section("Mayor potencial segun analistas", 0))
+    fake_outline.append(section("Estado de cada accion", 0))
     fake_outline.append(section("Glosario de variables", 0))
 
     scratch = ReportPDF(orientation="L", format="A4")
@@ -1369,6 +1374,8 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # Enlaces internos del glosario (P/E, PEG, etc. -> definicion). fpdf
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
+    # Un enlace por accion: la letra de la columna Est. salta a su explicacion (seccion 8).
+    status_links = {o["symbol"]: pdf.add_link(page=1) for o in top + top_small + top_trump + (potential or [])}
 
     draw_cover_page(pdf, "DEMO - datos ficticios" if rows and all(r.get("growth_source") == "DEMO" for r in rows) else "Candidatas para estudiar")
 
@@ -1477,7 +1484,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.set_text_color(*INK)
     pdf.ln(3)
     if top:
-        render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
+        render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG, status_links=status_links)
         pdf.add_page()
         render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
     else:
@@ -1523,7 +1530,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     if top_small:
         # Tabla en esta misma hoja; solo las fichas se van a la siguiente,
         # igual que en la Seccion 2.
-        render_summary_table(pdf, top_small, glossary_links, section_bg=SECTION3_BG)
+        render_summary_table(pdf, top_small, glossary_links, section_bg=SECTION3_BG, status_links=status_links)
         pdf.add_page()
         render_detailed_descriptions(pdf, top_small, glossary_links, section_number=3)
     else:
@@ -1544,7 +1551,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # Tabla en esta misma hoja; solo las fichas se van a la siguiente,
     # igual que en las secciones 2 y 3.
     if top_trump:
-        render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG)
+        render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG, status_links=status_links)
         pdf.add_page()
         render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
     else:
@@ -1596,13 +1603,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.ln(2)
 
     render_conviction_pdf(pdf, rows)
-    render_potential_pdf(pdf, potential or [], glossary_links)
+    render_potential_pdf(pdf, potential or [], glossary_links, status_links)
+    render_status_pdf(pdf, top + top_small + top_trump + (potential or []), status_links)
 
-    # --- Seccion 8: Glosario (aqui aterrizan todos los hipervinculos) ---
+    # --- Seccion 9: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 8", "8. Glosario de variables")
+    section_header(pdf, "Seccion 9", "9. Glosario de variables")
     for name, explanation in GLOSSARY:
         # Mantener el encabezado junto a las primeras líneas de su explicación.
         if pdf.get_y() + 22 > pdf.h - pdf.b_margin:
@@ -1744,7 +1752,45 @@ def write_reports(rows, errors, snapshot, output):
             entry={k:("'"+v if isinstance(v,str) and v.startswith(('=','+','-','@')) else v) for k,v in entry.items()}
             writer.writerow(entry)
 
-def render_potential_pdf(pdf, potential, glossary_links):
+def render_status_pdf(pdf, rows, status_links):
+    """Seccion 8: por que cada accion de las tablas tiene su estado (C/R/D/N), en lenguaje llano.
+    La letra de la columna Est. de cada tabla salta aqui."""
+    pdf.add_page()
+    pdf.start_section('Estado de cada accion')
+    section_header(pdf,'Seccion 8','8. Estado de cada accion')
+    pdf.set_font('Helvetica',size=9)
+    pdf.multi_cell(pdf.epw,5,sanitize(explain.LEGEND + '. Cada acción de las tablas aparece una vez, con lo que hay que saber en '
+                   'palabras normales. Un estado no es una recomendación: describe cómo la clasificó el filtro.'),
+                   new_x='LMARGIN',new_y='NEXT')
+    pdf.ln(3)
+    seen=set()
+    for o in rows:
+        if o['symbol'] in seen:
+            continue
+        seen.add(o['symbol'])
+        info=explain.explain(o)
+        if pdf.get_y()+45 > pdf.h-pdf.b_margin:
+            pdf.add_page()
+        pdf.set_link(status_links[o['symbol']],page=pdf.page_no(),y=pdf.get_y())
+        pdf.set_font('Helvetica',size=11,style='B')
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.epw,6,sanitize(f"{info['letter']} - {shown_name(o)}: {info['title']}"),new_x='LMARGIN',new_y='NEXT')
+        pdf.set_font('Helvetica',size=9)
+        pdf.multi_cell(pdf.epw,5,sanitize(info['text']),new_x='LMARGIN',new_y='NEXT')
+        for point in info['points']:
+            pdf.set_x(pdf.l_margin+4)
+            pdf.multi_cell(pdf.epw-4,5,sanitize('- '+point),new_x='LMARGIN',new_y='NEXT')
+        if info['valuation']:
+            pdf.set_font('Helvetica',size=9,style='B')
+            pdf.multi_cell(pdf.epw,5,sanitize('Valoración (sección 6): '+info['valuation']),new_x='LMARGIN',new_y='NEXT')
+            pdf.set_font('Helvetica',size=9)
+            for point in info['valuation_points']:
+                pdf.set_x(pdf.l_margin+4)
+                pdf.multi_cell(pdf.epw-4,5,sanitize('- '+point),new_x='LMARGIN',new_y='NEXT')
+        pdf.ln(3)
+
+
+def render_potential_pdf(pdf, potential, glossary_links, status_links=None):
     """Seccion 7: acciones con mayor distancia al precio objetivo de los analistas. Va siempre,
     aunque no haya candidatas, y avisa de que NO es una prediccion ni una recomendacion."""
     pdf.add_page()
@@ -1762,7 +1808,7 @@ def render_potential_pdf(pdf, potential, glossary_links):
     if not potential:
         pdf.multi_cell(pdf.epw,6,'Ninguna accion cumple hoy estas condiciones.',new_x='LMARGIN',new_y='NEXT')
         return
-    render_summary_table(pdf,potential,glossary_links,section_bg=SECTION56_BG)
+    render_summary_table(pdf,potential,glossary_links,section_bg=SECTION56_BG,status_links=status_links)
 
 
 def render_conviction_pdf(pdf, rows):
@@ -1782,7 +1828,7 @@ def render_conviction_pdf(pdf, rows):
             pdf.add_page()
         pdf.ln(5)
         pdf.set_font('Helvetica','B',11)
-        pdf.multi_cell(pdf.epw,6,sanitize(f"{shown_name(row)} - {v['conviction']} | Margen base: {v['margin_of_safety']:.1%}"),new_x='LMARGIN',new_y='NEXT')
+        pdf.multi_cell(pdf.epw,6,sanitize(f"{shown_name(row)} - {explain.valuation_label(v['conviction']).split(':')[0]} | Margen base: {v['margin_of_safety']:.1%}"),new_x='LMARGIN',new_y='NEXT')
         pdf.set_font('Helvetica',size=9)
         pdf.multi_cell(pdf.epw,5,sanitize(f"Precio: {row['current_price']:.2f} {row['currency']} | Umbral con margen 25%: {v['study_price_limit']:.2f} {row['currency']} (no es una orden de compra)."),new_x='LMARGIN',new_y='NEXT')
         for label,case in v['scenarios'].items():
@@ -1795,7 +1841,7 @@ def render_conviction_pdf(pdf, rows):
         if sens:
             verdict='conclusion robusta' if sens['robust'] else 'conclusion fragil: depende de las hipotesis'
             pdf.multi_cell(pdf.epw,5,sanitize(f"Sensibilidad ({sens['combinations']} combinaciones de crecimiento, PER, beneficio y tasa): margen minimo {sens['min_margin']:.1%}, mediano {sens['median_margin']:.1%}; margen >=25% en {sens['share_margin_ok']:.0%} de los casos - {verdict}."),new_x='LMARGIN',new_y='NEXT')
-        pdf.multi_cell(pdf.epw,5,sanitize('; '.join(v['conviction_reasons']) or 'Cumple reglas; pendiente de analisis cualitativo.'),new_x='LMARGIN',new_y='NEXT')
+        pdf.multi_cell(pdf.epw,5,sanitize(' '.join(explain.humanize(r) for r in v['conviction_reasons']) or 'Cumple reglas; pendiente de analisis cualitativo.'),new_x='LMARGIN',new_y='NEXT')
     pdf.ln(4)
     pdf.multi_cell(pdf.epw,5,'JSON contiene todas las empresas, calidad historica, motivos y datos insuficientes. Un precio calculado depende de los supuestos; no es un valor intrinseco verificado.',new_x='LMARGIN',new_y='NEXT')
 

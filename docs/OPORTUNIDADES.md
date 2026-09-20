@@ -23,7 +23,7 @@ La tasa predeterminada es 12%, un supuesto de análisis, no rentabilidad garanti
 
 Para prioridad alta: superar el ranking principal y todos los controles históricos, deuda neta/EBITDA <=2, crecimiento con cobertura suficiente, margen >=25%, pérdida anual de precio en escenario adverso no peor que -5% y **sensibilidad robusta** (margen >=25% en al menos el 75% de 81 combinaciones de crecimiento, PER de salida, beneficio y tasa, con margen mínimo positivo). Mostrar el escenario adverso no limita la pérdida real: pueden ocurrir resultados peores. No se asignan probabilidades. No se incluyen dividendos, comisiones, fiscalidad ni riesgo de cambio futuro. No es un DCF empresarial ni un valor intrínseco verificado.
 
-`vigilar_precio` indica que los supuestos de precio no cumplen; `revisar_calidad` que hay problemas adicionales; `sin_valoracion` que falta información suficiente. La sección explica los motivos y puede quedar sin empresas de prioridad alta.
+`vigilar_precio` indica que los supuestos de precio no cumplen; `revisar_historial` (antes `revisar_calidad`) que hay un problema con las cuentas de los últimos años, con el crecimiento estimado o con los datos del proveedor; `sin_valoracion` que falta información suficiente. La sección explica los motivos y puede quedar sin empresas de prioridad alta.
 
 ```powershell
 python screener.py --watchlist watchlist.txt --deep-limit 50 --horizon 5 --required-return 0.12 --pdf

@@ -53,7 +53,7 @@ class AlertsTests(unittest.TestCase):
         self.assertNotIn(('A', 'caja_deteriora'), self.kinds(entry('a', cand('A')), entry('b', cand('A', fcf_yield=.07))))
 
     def test_quality_drop_and_conviction_change(self):
-        kinds = self.kinds(entry('a', cand('A')), entry('b', cand('A', quality_ratio=.5, conviction='revisar_calidad')))
+        kinds = self.kinds(entry('a', cand('A')), entry('b', cand('A', quality_ratio=.5, conviction='revisar_historial')))
         self.assertIn(('A', 'pierde_calidad'), kinds)
         self.assertIn(('A', 'cambia_prioridad'), kinds)
 

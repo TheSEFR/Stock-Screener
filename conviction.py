@@ -158,7 +158,7 @@ def scenarios(row, historical, rates, horizon=5, required_return=.12):
     result['sensitivity']=sensitivity(eps_quote,base_growth,peer,price,horizon,required_return)
     result['conviction']='vigilar_precio'
     if not historical.get('history_healthy') or not row.get('eligible') or not trusted:
-        result['conviction']='revisar_calidad'
+        result['conviction']='revisar_historial'
     if not row.get('eligible'):
         result['conviction_reasons'].append('No supera el filtro principal')
     leverage=number(row.get('net_debt_ebitda'))
