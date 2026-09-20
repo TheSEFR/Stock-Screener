@@ -134,7 +134,7 @@ class ScreenerTests(unittest.TestCase):
                 row=copy.deepcopy(self.good)
                 row[key]=None
                 self.assertFalse(c.evaluate(row)['eligible'])
-                self.assertEqual(s.risk_label(row),'Revisar')
+                self.assertEqual(s.risk_label(row),'Rev.')
 
     def test_stale_quote(self):
         self.good['quote_age_days']=8
@@ -501,6 +501,12 @@ class ScreenerTests(unittest.TestCase):
         self.assertEqual(s.shown_name({'symbol':'005930.KS','name':'Samsung'}),'Samsung (005930.KS)')
         self.assertEqual(s.shown_name({'symbol':'AAPL','name':'AAPL'}),'AAPL')
         self.assertEqual(s.shown_name({'symbol':'AAPL'}),'AAPL')
+
+    def test_market_cap_has_no_decimals_from_one_thousand_units(self):
+        self.assertEqual(s.format_market_cap(1.3182e15),'1.318T')
+        self.assertEqual(s.format_market_cap(1.5e12),'1,5T')
+        self.assertEqual(s.format_market_cap(4.2e9),'4,2B')
+        self.assertEqual(s.format_market_cap(8e8),'800M')
 
     def test_large_prices_have_no_decimals_so_the_table_does_not_wrap(self):
         self.assertEqual(s.fmt_price(261000.0),'261.000')
