@@ -1,9 +1,9 @@
-"""
-Screener de oportunidades de compra: P/E vs sector, PEG, crecimiento de
-beneficios e insider buying. Rankea la watchlist, genera un PDF en tabla
-con el top 10 (y titulares de noticias recientes) y lo envia a Telegram.
+"""Screener revisado: valoración, calidad, cobertura y trazabilidad.
 
-Uso: python screener.py
+Uso: python screener.py --demo
+     python screener.py --watchlist watchlist.txt --pdf
+     python screener.py --input informes/snapshot.json
+Telegram solo con --send. Ver README.md y REVISION.md.
 """
 import json
 import os
@@ -13,12 +13,53 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from functools import lru_cache
 
-import pandas as pd
-import requests
-import yfinance as yf
-from deep_translator import GoogleTranslator
-from dotenv import load_dotenv
-from fpdf import FPDF
+# Dependencias opcionales: --demo y --input funcionan solo con Python 3.10+.
+try:
+    import pandas as pd
+    import yfinance as yf
+except ImportError:
+    pd = yf = None
+try:
+    import requests
+except ImportError:
+    requests = None
+try:
+    from deep_translator import GoogleTranslator
+except ImportError:
+    GoogleTranslator = None
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = object
+
+import argparse
+import csv
+import math
+import re
+import statistics
+import sys
+import time
+from pathlib import Path
+from datetime import timezone
+from urllib.parse import urlencode
+import screener_core as core
+import conviction
+import alerts
+import forward_test
+import reconcile
+import sector_models
+DEEP_LIMIT = 20
+HORIZON = 5
+REQUIRED_RETURN = .12
+HTTP = core.HttpClient()
+ENABLE_TRANSLATION = False
+PDF_OUTPUT_DIR = Path(__file__).parent / 'informes'
+
 
 # Debe ejecutarse ANTES de leer cualquier os.environ.get() a nivel de modulo
 # (ej. FMP_API_KEY, SEC_EDGAR_USER_AGENT mas abajo); si no, un .env local
@@ -37,6 +78,15 @@ NEWS_PER_TICKER = 2
 DESCRIPTION_MAX_CHARS = 500
 SMALL_CAP_MAX = 2_000_000_000  # USD; por debajo se trata como "pequeña capitalizacion"
 SMALL_CAP_TOP_N = 10
+
+# Umbrales del filtro estricto de rank_top(): en vez de rellenar siempre hasta
+# TOP_N con "las menos malas", solo entran las acciones que cumplen estos
+# minimos. Si ninguna los cumple, el informe lo dice (no hay candidatas).
+MIN_SCORE_RATIO = 0.75  # al menos 3 de cada 4 criterios de valor aplicables
+MIN_CHECKS_APPLICABLE = 3  # con menos comprobaciones el score no es fiable
+FCF_YIELD_MIN = 0.05  # flujo de caja libre / capitalizacion > 5%
+NET_DEBT_EBITDA_MAX = 4.0  # deuda neta / EBITDA por encima = apalancamiento alto
+MIN_AVG_DOLLAR_VOLUME = 1_000_000  # volumen medio diario (precio x acciones)
 
 # Cesta tematica "Trump trade": acciones que la prensa financiera (Goldman
 # Sachs, Kiplinger, Bloomberg, Investing.com...) menciona repetidamente como
@@ -74,197 +124,55 @@ NEGATIVE_WORDS = (
     "loss", "losses", "layoffs", "investigation",
 )
 
-# --- Fuentes de datos combinadas (ademas de Yahoo Finance) --------------
-#
-# SEC EDGAR (gratis, oficial, sin API key): fuente PRIMARIA de insider
-# buying para acciones que reportan a la SEC (EEUU). Solo exige identificarse
-# con un User-Agent descriptivo (politica de uso justo de la SEC); si no se
-# configura, se usa un valor generico que funciona pero es mejor personalizar.
-# No amplia cobertura a mercados fuera de EEUU (esos simplemente no estan en
-# el mapa de tickers de la SEC), solo hace mas fiable el dato para EEUU en
-# vez de depender de que yfinance lo raspe correctamente de Yahoo.
+# SEC opcional: identidad real exigida; sin ella queda N/D.
 SEC_EDGAR_USER_AGENT = os.environ.get(
-    "SEC_EDGAR_USER_AGENT", "Stock-Screener contacto-no-configurado@example.com"
+    "SEC_EDGAR_USER_AGENT", ""
 )
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 SEC_ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/{primary_doc}"
 
-# Financial Modeling Prep (FMP): respaldo OPCIONAL (requiere API key propia,
-# hay plan gratis con 250 peticiones/dia) usado solo cuando Yahoo Finance no
-# tiene suficiente cobertura de analistas para calcular crecimiento o
-# recomendacion (tipico en small/micro caps). Si no se configura
-# FMP_API_KEY, el informe funciona igual que antes, simplemente sin este
-# respaldo.
+# FMP opcional: endpoint stable y acceso según el plan contratado.
 FMP_API_KEY = os.environ.get("FMP_API_KEY")
-FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
+FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
 
-@lru_cache(maxsize=1)
-def _load_edgar_cik_map() -> dict[str, str]:
-    """Ticker (mayusculas) -> CIK de 10 digitos segun SEC EDGAR. Se descarga
-    una sola vez por ejecucion (el fichero es grande y no cambia en minutos)."""
-    try:
-        resp = requests.get(
-            SEC_TICKERS_URL, headers={"User-Agent": SEC_EDGAR_USER_AGENT}, timeout=15
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        return {}
-    return {entry["ticker"].upper(): f"{entry['cik_str']:010d}" for entry in data.values()}
 
 
-def _form4_has_open_market_buy(cik: str, accession: str, primary_doc: str) -> bool:
-    """Parsea un Form 4 (XML) y busca una transaccion de compra en mercado
-    abierto (transactionCode 'P', acquired/disposed 'A')."""
-    url = SEC_ARCHIVES_URL.format(
-        cik=int(cik), accession_nodash=accession.replace("-", ""), primary_doc=primary_doc
-    )
-    try:
-        resp = requests.get(url, headers={"User-Agent": SEC_EDGAR_USER_AGENT}, timeout=15)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-    except Exception:
-        return False
-    for tx in root.iter("nonDerivativeTransaction"):
-        code = tx.find("./transactionCoding/transactionCode")
-        acquired = tx.find("./transactionAmounts/transactionAcquiredDisposedCode/value")
-        if code is not None and code.text == "P" and acquired is not None and acquired.text == "A":
-            return True
-    return False
 
 
-def edgar_recent_insider_buy(symbol: str) -> bool | None:
-    """True/False si SEC EDGAR confirma una compra de insider en mercado
-    abierto en los ultimos INSIDER_LOOKBACK_DAYS; None si el ticker no esta
-    en el mapa de EDGAR (no reporta a la SEC, ej. fuera de EEUU) o si la
-    consulta falla, para que quien llama pueda recurrir a Yahoo como
-    respaldo en vez de asumir que no hay compras."""
-    cik = _load_edgar_cik_map().get(symbol.upper())
-    if not cik:
-        return None
-    try:
-        resp = requests.get(
-            SEC_SUBMISSIONS_URL.format(cik=int(cik)),
-            headers={"User-Agent": SEC_EDGAR_USER_AGENT},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        recent = resp.json().get("filings", {}).get("recent", {})
-    except Exception:
-        return None
 
-    cutoff = datetime.now() - timedelta(days=INSIDER_LOOKBACK_DAYS)
-    forms = recent.get("form", [])
-    dates = recent.get("filingDate", [])
-    accessions = recent.get("accessionNumber", [])
-    docs = recent.get("primaryDocument", [])
-    for form, date_str, accession, primary_doc in zip(forms, dates, accessions, docs):
-        if form != "4":
+
+def edgar_recent_insider_buy(symbol):
+    return core.sec_insider(symbol, SEC_EDGAR_USER_AGENT, HTTP)
+
+
+
+
+
+
+
+
+def load_watchlist(path=None):
+    path = Path(path or WATCHLIST_FILE)
+    if not path.exists():
+        raise ValueError(f'No existe {path.name}. Crea un ticker por línea o usa --demo.')
+    result = []
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        symbol = line.split('#', 1)[0].strip().upper()
+        if not symbol:
             continue
-        try:
-            filing_date = datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError:
-            continue
-        if filing_date < cutoff:
-            continue
-        if _form4_has_open_market_buy(cik, accession, primary_doc):
-            return True
-    return False
+        if not re.fullmatch(r'[A-Z0-9][A-Z0-9.\-^=]{0,24}', symbol):
+            raise ValueError(f'Ticker inválido: {symbol!r}')
+        if symbol not in result:
+            result.append(symbol)
+    if not result:
+        raise ValueError('La watchlist está vacía.')
+    return result
 
 
-def fmp_growth_and_coverage(symbol: str) -> tuple[float | None, int | None]:
-    """Crecimiento interanual de EPS y numero de analistas via Financial
-    Modeling Prep, solo si hay FMP_API_KEY configurada. Respaldo para cuando
-    Yahoo Finance no tiene cobertura suficiente (None) para calcularlo."""
-    if not FMP_API_KEY:
-        return None, None
-    try:
-        resp = requests.get(
-            f"{FMP_BASE_URL}/analyst-estimates/{symbol}",
-            params={"period": "annual", "limit": 2, "apikey": FMP_API_KEY},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        estimates = resp.json()
-    except Exception:
-        return None, None
-    if not isinstance(estimates, list) or len(estimates) < 2:
-        return None, None
-    current, previous = estimates[0], estimates[1]  # FMP: del mas reciente al mas antiguo
-    eps_now, eps_prev = current.get("epsAvg"), previous.get("epsAvg")
-    growth = None
-    if eps_now is not None and eps_prev not in (None, 0):
-        growth = (eps_now - eps_prev) / abs(eps_prev)
-    num_analysts = (
-        current.get("numberAnalystsEstimatedEps")
-        or current.get("numberAnalystEstimatedEps")
-        or current.get("numAnalystsEps")
-    )
-    return growth, num_analysts
-
-
-def fmp_recommendation(symbol: str) -> str | None:
-    """Consenso de analistas via FMP (notas individuales de upgrade/downgrade
-    recientes), respaldo cuando Yahoo no tiene recommendationKey para el
-    ticker. None si no hay FMP_API_KEY o no hay notas recientes."""
-    if not FMP_API_KEY:
-        return None
-    try:
-        resp = requests.get(
-            f"{FMP_BASE_URL}/grade/{symbol}",
-            params={"limit": 10, "apikey": FMP_API_KEY},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        grades = resp.json()
-    except Exception:
-        return None
-    if not isinstance(grades, list) or not grades:
-        return None
-    recent_grades = [g.get("newGrade", "").lower() for g in grades[:10] if g.get("newGrade")]
-    if not recent_grades:
-        return None
-    strong = sum(1 for g in recent_grades if g in STRONG_BUY_GRADES)
-    weak = sum(1 for g in recent_grades if g in {"underperform", "sell", "reduce"})
-    if strong > len(recent_grades) / 2:
-        return "CF"
-    if weak > len(recent_grades) / 2:
-        return "NC"
-    return "CN"
-
-
-def load_watchlist() -> list[str]:
-    with open(WATCHLIST_FILE, encoding="utf-8") as f:
-        return [
-            line.strip().upper()
-            for line in f
-            if line.strip() and not line.strip().startswith("#")
-        ]
-
-
-def has_recent_insider_buying(ticker: yf.Ticker) -> bool | None:
-    """True/False si hay compras de insiders recientes; None si no hay dato
-    en ninguna fuente. Prueba primero SEC EDGAR (fuente oficial, solo cubre
-    acciones que reportan a la SEC) y si no aplica o falla, recurre a Yahoo
-    Finance como respaldo. Devolver None en vez de False evita penalizar en
-    el score a acciones sin este dato en ningun sitio (la mayoria fuera de
-    EEUU)."""
-    edgar_result = edgar_recent_insider_buy(ticker.ticker)
-    if edgar_result is not None:
-        return edgar_result
-
-    try:
-        df = ticker.insider_transactions
-    except Exception:
-        return None
-    if df is None or df.empty or "Transaction" not in df or "Start Date" not in df:
-        return None
-    cutoff = datetime.now() - timedelta(days=INSIDER_LOOKBACK_DAYS)
-    buys = df[df["Transaction"].str.contains("Buy", case=False, na=False)]
-    recent = buys[pd.to_datetime(buys["Start Date"], errors="coerce") >= cutoff]
-    return not recent.empty
+def has_recent_insider_buying(ticker):
+    return edgar_recent_insider_buy(ticker.ticker)
 
 
 RECOMMENDATION_LABELS = {
@@ -294,8 +202,9 @@ def region_for(country: str | None) -> str:
     return REGION_BY_COUNTRY.get(country or "", "Otros")
 
 
-def is_small_cap(r: dict) -> bool:
-    return r["market_cap"] is not None and r["market_cap"] < SMALL_CAP_MAX
+def is_small_cap(r):
+    cap = core.positive(r.get('market_cap_usd'))
+    return cap is not None and cap < SMALL_CAP_MAX
 
 
 _ES_NUMBER_TABLE = str.maketrans({",": ".", ".": ","})
@@ -349,10 +258,21 @@ def display_name(info: dict, symbol: str) -> str:
     comentario de SUMMARY_WIDTHS)."""
     if not symbol[:1].isdigit():
         return symbol
-    name = info.get("shortName") or info.get("longName") or symbol
+    # longName primero: "Samsung Electronics Co., Ltd." -> "Samsung"; el
+    # shortName de Yahoo suele venir pegado ("SamsungElec") y se lee peor.
+    full = (info.get("longName") or info.get("shortName") or symbol).strip()
+    name = re.split(r"[\s,]+", full)[0] or symbol
     if len(name) > DISPLAY_NAME_MAX_CHARS + 1:
         return name[:DISPLAY_NAME_MAX_CHARS] + "."
     return name
+
+
+def shown_name(row: dict) -> str:
+    """Como mostrar una accion en fichas, indice y titulos: el nombre si el
+    ticker es solo un codigo numerico (Samsung), con el codigo entre
+    parentesis para poder identificarla; el propio ticker en el resto."""
+    name = row.get("name") or row["symbol"]
+    return name if name == row["symbol"] else f"{name} ({row['symbol']})"
 
 
 def fiscal_year_end(info: dict) -> str:
@@ -365,164 +285,178 @@ def fiscal_year_end(info: dict) -> str:
     return datetime.fromtimestamp(ts).strftime("%m/%y")
 
 
-def analyze(symbols: list[str]) -> tuple[list[dict], float | None]:
-    rows = []
-    for sym in symbols:
-        t = yf.Ticker(sym)
-        info = t.info
-        pe = info.get("trailingPE")
-        # "earningsGrowth" viene del modulo financialData de Yahoo Finance, el
-        # mismo bloque que agrega precios objetivo y recomendaciones: es un
-        # consenso de analistas (ver glosario "Crecim."), no un calculo propio.
-        growth = info.get("earningsGrowth")  # fraccion, ej 0.18 = 18%
-        num_analysts = info.get("numberOfAnalystOpinions")
-        recommendation = recommendation_label(info.get("recommendationKey"))
-        growth_source = "Yahoo" if growth is not None else None
-        recommendation_source = "Yahoo" if recommendation != "N/D" else None
-
-        # Respaldo FMP: solo se activa cuando Yahoo no tiene suficiente
-        # cobertura de analistas para calcular estas cifras (tipico en
-        # small/micro caps). Si FMP_API_KEY no esta configurada, estas
-        # llamadas devuelven None de inmediato y no cambia nada.
-        if growth is None or num_analysts is None:
-            fmp_growth, fmp_analysts = fmp_growth_and_coverage(sym)
-            if growth is None and fmp_growth is not None:
-                growth, growth_source = fmp_growth, "FMP"
-            if num_analysts is None and fmp_analysts is not None:
-                num_analysts = fmp_analysts
-        if recommendation == "N/D":
-            fmp_rec = fmp_recommendation(sym)
-            if fmp_rec is not None:
-                recommendation, recommendation_source = fmp_rec, "FMP"
-
-        peg = (pe / (growth * 100)) if pe and growth and growth > 0 else None
-
-        # Precio actual (a fecha/hora de ESTA ejecucion, no un valor fijo) y
-        # precio objetivo de consenso de analistas (mismo modulo financialData
-        # que "Crecim."/"Recomendacion": ver glosario "Precio objetivo").
-        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        target_price = info.get("targetMeanPrice")
-        currency = info.get("currency") or ""
-        upside = (
-            (target_price - current_price) / current_price
-            if current_price and target_price else None
-        )
-
-        rows.append(
-            {
-                "symbol": sym,
-                "name": display_name(info, sym),
-                "sector": info.get("sector"),
-                "country": info.get("country"),
-                "pe": pe,
-                "growth": growth,
-                "growth_source": growth_source,
-                "peg": peg,
-                "current_price": current_price,
-                "target_price": target_price,
-                "currency": currency,
-                "upside": upside,
-                "market_cap": info.get("marketCap"),
-                "num_analysts": num_analysts,
-                "insider_buying": has_recent_insider_buying(t),
-                "recommendation": recommendation,
-                "recommendation_source": recommendation_source,
-                # Señales de "calidad" (ver quality() y glosario "Calidad"):
-                # rentabilidad, margen, apalancamiento y liquidez.
-                "roe": info.get("returnOnEquity"),
-                "operating_margin": info.get("operatingMargins"),
-                "debt_to_equity": info.get("debtToEquity"),
-                "current_ratio": info.get("currentRatio"),
-                "description_en": (info.get("longBusinessSummary") or "")[:DESCRIPTION_MAX_CHARS],
-                "fiscal_year_end": fiscal_year_end(info),
-            }
-        )
-
-    # P/E y margen operativo medios POR SECTOR: comparar una farmaceutica
-    # suiza contra un semiconductor de EEUU con un unico promedio global no
-    # es representativo (ni para P/E ni para margenes, que varian aun mas
-    # entre sectores: un supermercado y un software no son comparables).
-    pe_by_sector = defaultdict(list)
-    margin_by_sector = defaultdict(list)
-    for r in rows:
-        if r["pe"]:
-            pe_by_sector[r["sector"]].append(r["pe"])
-        if r["operating_margin"] is not None:
-            margin_by_sector[r["sector"]].append(r["operating_margin"])
-    sector_avg_pe = {sector: sum(vals) / len(vals) for sector, vals in pe_by_sector.items()}
-    sector_avg_margin = {sector: sum(vals) / len(vals) for sector, vals in margin_by_sector.items()}
-
-    valid_pe = [r["pe"] for r in rows if r["pe"]]
-    global_avg_pe = sum(valid_pe) / len(valid_pe) if valid_pe else None
-    valid_margin = [r["operating_margin"] for r in rows if r["operating_margin"] is not None]
-    global_avg_margin = sum(valid_margin) / len(valid_margin) if valid_margin else None
-    for r in rows:
-        r["sector_avg_pe"] = sector_avg_pe.get(r["sector"], global_avg_pe)
-        r["sector_avg_margin"] = sector_avg_margin.get(r["sector"], global_avg_margin)
-
-    return rows, global_avg_pe
+def fcf_yield(info):
+    # Compatibilidad: sin FX, solo calcular cuando ambas monedas coinciden.
+    major, _ = core.quote_currency(info.get('currency'))
+    cap, cash = core.positive(info.get('marketCap')), core.number(info.get('freeCashflow'))
+    return cash / cap if cap and cash is not None and major and major == info.get('financialCurrency') else None
 
 
-def score(r: dict) -> None:
-    """Cada check vale None cuando no hay dato para evaluarlo (no aplica),
-    en vez de contar como fallo. Asi una accion de un mercado donde Yahoo no
-    publica insider trading (la mayoria fuera de EEUU) no queda penalizada
-    frente a una accion estadounidense por un dato que nunca podra tener."""
-    avg_pe = r.get("sector_avg_pe")
-    checks = {
-        "pe_bajo": None if avg_pe is None or r["pe"] is None else r["pe"] < avg_pe,
-        "peg_bueno": None if r["peg"] is None else r["peg"] < PEG_MAX,
-        "crecimiento": None if r["growth"] is None else r["growth"] > EARNINGS_GROWTH_MIN,
-        "insider_buying": r["insider_buying"],
-    }
-    r["checks"] = checks
-    applicable = [v for v in checks.values() if v is not None]
-    r["checks_applicable"] = len(applicable)
-    r["score"] = sum(applicable)
-    r["score_ratio"] = (r["score"] / len(applicable)) if applicable else 0.0
+def net_debt_to_ebitda(info):
+    values = [core.number(info.get(k)) for k in ('totalDebt','totalCash','ebitda')]
+    debt, cash, ebitda = values
+    return (debt-cash)/ebitda if all(v is not None for v in values) and ebitda > 0 else None
 
 
-def quality(r: dict) -> None:
-    """Score de 'calidad' (version simplificada del Piotroski F-Score):
-    rentabilidad (ROE), margen operativo vs sector, apalancamiento y
-    liquidez. La evidencia academica (Piotroski 1976-1996 y estudios
-    posteriores) muestra que la calidad funciona sobre todo como FILTRO
-    dentro de acciones ya baratas, no como señal aislada — por eso aqui se
-    usa como desempate DESPUES del score de valor/crecimiento en
-    rank_top(), no mezclada en el mismo numero. Mismo criterio que score():
-    None si no hay dato, no penaliza."""
-    avg_margin = r.get("sector_avg_margin")
-    checks = {
-        "roe_bueno": None if r["roe"] is None else r["roe"] > ROE_MIN,
-        "margen_bueno": (
-            None if avg_margin is None or r["operating_margin"] is None
-            else r["operating_margin"] > avg_margin
-        ),
-        "deuda_baja": None if r["debt_to_equity"] is None else r["debt_to_equity"] < DEBT_EQUITY_MAX,
-        "liquidez_buena": None if r["current_ratio"] is None else r["current_ratio"] > CURRENT_RATIO_MIN,
-    }
-    r["quality_checks"] = checks
-    applicable = [v for v in checks.values() if v is not None]
-    r["quality_applicable"] = len(applicable)
-    r["quality_score"] = sum(applicable)
-    r["quality_ratio"] = (r["quality_score"] / len(applicable)) if applicable else 0.0
+def avg_dollar_volume(info):
+    # Compatibilidad: solo USD sin un convertidor explícito.
+    price = core.positive(info.get('currentPrice')) or core.positive(info.get('regularMarketPrice'))
+    volume = core.positive(info.get('averageVolume'))
+    return price*volume if price and volume and info.get('currency') == 'USD' else None
 
 
-def rank_top(rows: list[dict], n: int = TOP_N) -> list[dict]:
-    for r in rows:
-        score(r)
-        quality(r)
+USE_CACHE = False  # --resume: reutiliza lo ya descargado hoy si una ejecucion se interrumpio
+CACHE_DIR = Path(__file__).parent / 'cache'
 
-    def sort_key(r: dict) -> tuple:
-        # Desempate deliberado: NO usar el orden del watchlist.txt (que
-        # empieza por EEUU) como criterio implicito via sorted() estable,
-        # eso favorecia sistematicamente a las primeras acciones de la lista.
-        # La calidad desempata DESPUES del score principal (ver quality()).
-        peg = r["peg"] if r["peg"] is not None else float("inf")
-        return (-r["score_ratio"], -r["quality_ratio"], -r["score"], peg)
 
-    ranked = sorted(rows, key=sort_key)
-    return ranked[:n]
+def _cache_file(symbol, now):
+    return CACHE_DIR / now.date().isoformat() / (re.sub(r'[^A-Za-z0-9._-]', '_', symbol) + '.json')
+
+
+def _cache_load(symbol, now):
+    if not USE_CACHE:
+        return None
+    try:
+        data = json.loads(_cache_file(symbol, now).read_text(encoding='utf-8'))
+        return data if isinstance(data.get('info'), dict) and isinstance(data.get('estimates'), dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _cache_save(symbol, now, fetched):
+    if not USE_CACHE:
+        return
+    path = _cache_file(symbol, now)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix('.tmp')
+        temp.write_text(json.dumps(fetched, ensure_ascii=False, allow_nan=False), encoding='utf-8')
+        temp.replace(path)  # escritura atomica: una interrupcion no deja un JSON a medias
+    except (OSError, ValueError, TypeError):
+        pass  # la cache es solo una optimizacion; nunca debe romper la ejecucion
+
+
+def _fetch_ticker(sym, now, errors):
+    """Info y estimaciones de un ticker, o None si Yahoo no da informacion."""
+    try:
+        ticker = yf.Ticker(sym)
+        info = ticker.info
+        if not isinstance(info, dict) or not info:
+            raise ValueError('Sin información')
+    except Exception as exc:
+        errors.append({'symbol':sym, 'stage':'info', 'error':type(exc).__name__})
+        return None
+    estimates = {}
+    try:
+        frame = ticker.earnings_estimate
+        if frame is not None and all(k in frame.index for k in ('0y','+1y')):
+            estimates = core.expected_growth(frame.loc['0y'].to_dict(),frame.loc['+1y'].to_dict())
+            estimates['growth_source'] = 'Yahoo earnings_estimate'
+    except Exception as exc:
+        errors.append({'symbol':sym, 'stage':'estimates', 'error':type(exc).__name__})
+    if estimates.get('growth') is None and FMP_API_KEY:
+        try:
+            url = 'https://financialmodelingprep.com/stable/analyst-estimates?' + urlencode(
+                {'symbol':sym, 'period':'annual', 'limit':10, 'apikey':FMP_API_KEY})
+            estimates = core.fmp_estimates(HTTP.get(url), now)
+        except Exception as exc:
+            errors.append({'symbol':sym, 'stage':'FMP', 'error':type(exc).__name__})
+    return {'info': info, 'estimates': estimates}
+
+
+def analyze(symbols):
+    if yf is None:
+        raise RuntimeError('Instala requirements.txt para consultar Yahoo. --demo funciona sin dependencias.')
+    now = datetime.now(timezone.utc)
+    rows, errors, snapshots = [], [], []
+    rates = {'USD':1.0}
+    def fx(currency):
+        if currency in rates:
+            return rates[currency]
+        if not currency or not re.fullmatch('[A-Z]{3}', currency):
+            return None
+        try:
+            history = yf.Ticker(f'{currency}USD=X').history(period='5d', auto_adjust=False)
+            series = history['Close'].dropna()
+            stamp = core.utc_date(series.index[-1].isoformat())
+            rates[currency] = core.positive(series.iloc[-1]) if stamp and 0 <= (now-stamp).days <= 7 else None
+        except Exception as exc:
+            rates[currency] = None
+            errors.append({'symbol':currency, 'stage':'fx', 'error':type(exc).__name__})
+        return rates[currency]
+    for sym in dict.fromkeys(symbols):
+        print(f'Analizando {sym}...', flush=True)
+        cached = _cache_load(sym, now)
+        fetched = cached or _fetch_ticker(sym, now, errors)
+        if not fetched:
+            continue
+        if not cached:
+            _cache_save(sym, now, fetched)
+        info, estimates = fetched['info'], fetched['estimates']
+        row = core.normalize(sym, info, estimates, fx, now)
+        row['name'] = display_name(info, sym)
+        rows.append(row)
+        snapshots.append({'symbol':sym, 'info':info, 'estimates':estimates})
+        time.sleep(.25)
+    core.add_peers(rows)
+    for row in rows:
+        core.evaluate(row)
+    inputs={r['symbol']:r for r in snapshots}
+    by_symbol={r['symbol']:r for r in rows}
+    for candidate in core.rank(rows,n=DEEP_LIMIT,strict=False):
+        sym=candidate['symbol']
+        if candidate.get('unsupported_model'):
+            continue
+        try:
+            ticker=yf.Ticker(sym)
+            statements={'income':conviction.table_records(ticker.income_stmt),
+                        'cashflow':conviction.table_records(ticker.cashflow),
+                        'balance':conviction.table_records(ticker.balance_sheet)}
+            inputs[sym]['statements']=statements
+            by_symbol[sym]['reconciliation']=reconcile.check_symbol(
+                sym,statements,candidate.get('financial_currency'),SEC_EDGAR_USER_AGENT,HTTP)
+        except Exception as exc:
+            errors.append({'symbol':sym,'stage':'historical_statements','error':type(exc).__name__})
+    for row in rows:
+        historical=conviction.historical_quality(inputs[row['symbol']].get('statements',{}),now)
+        row['historical']=historical
+        row['valuation']=conviction.scenarios(row,historical,rates,HORIZON,REQUIRED_RETURN)
+        row['sector_model']=sector_models.evaluate(row)
+        if (row.get('reconciliation') or {}).get('status')=='discrepancia':
+            # Cifras que no cuadran con la SEC no pueden sostener una prioridad alta.
+            valuation=row['valuation']
+            valuation['conviction_reasons'].append('Discrepancia entre Yahoo y SEC en ingresos o beneficio')
+            if valuation['conviction']=='prioridad_alta_para_estudio':
+                valuation['conviction']='revisar_calidad'
+    analyze.errors, analyze.snapshot = errors, {'as_of':now.isoformat(), 'fx_rates':rates, 'records':snapshots}
+    valid = [r['pe'] for r in rows if r['pe']]
+    return rows, statistics.mean(valid) if valid else None
+
+
+def score(r):
+    core.score(r)
+
+
+def quality(r):
+    core.quality(r)
+
+
+def is_excluded(r):
+    failures, missing = core.risk_reasons(r)
+    return bool(failures or missing)
+
+
+def risk_label(r):
+    failures, missing = core.risk_reasons(r)
+    return 'Alto' if failures else 'Revisar' if missing else 'OK'
+
+
+def passes_strict_filter(r):
+    return core.evaluate(r)['eligible']
+
+
+def rank_top(rows, n=TOP_N, strict=True):
+    return core.rank(rows, n, strict)
 
 
 TRANSLATION_ERROR_MARKERS = (
@@ -531,83 +465,74 @@ TRANSLATION_ERROR_MARKERS = (
 )
 
 
-def translate(text: str, target: str = "es") -> str:
-    text = (text or "").strip()
-    if not text:
-        return ""
+def translate(text, target='es'):
+    if not ENABLE_TRANSLATION or GoogleTranslator is None or not text:
+        return text or ''
     try:
-        result = GoogleTranslator(source="auto", target=target).translate(text)
+        result = GoogleTranslator(source='auto', target=target).translate(text)
+        if result and not any(w in result.lower() for w in TRANSLATION_ERROR_MARKERS):
+            return result
     except Exception:
-        return text  # servicio de traduccion caido: mostramos el original
-    if not result:
-        return text
-    # deep_translator no siempre lanza excepcion cuando Google devuelve una
-    # pagina de error (rate limit, 500...): a veces esa pagina de error se
-    # cuela como si fuera la traduccion valida. Si el resultado parece esa
-    # pagina de error en vez de una traduccion real, descartamos y mostramos
-    # el original.
-    low = result.lower()
-    if any(marker in low for marker in TRANSLATION_ERROR_MARKERS):
-        return text
-    return result
+        pass
+    return text
 
 
-def crude_sentiment(text: str) -> str:
-    """Heuristica por palabras clave, NO es analisis experto ni de un LLM."""
-    low = text.lower()
-    positive = any(w in low for w in POSITIVE_WORDS)
-    negative = any(w in low for w in NEGATIVE_WORDS)
-    if positive and not negative:
-        return "Posible impacto positivo (heuristica)"
-    if negative and not positive:
-        return "Posible impacto negativo (heuristica)"
-    return "Impacto incierto / mixto (heuristica)"
+def crude_sentiment(text):
+    # No inferimos impacto bursátil con un diccionario sin contexto/negación.
+    return 'Titular informativo; impacto no evaluado'
 
 
-def get_strong_buy_banks(symbol: str, limit: int = 4) -> list[str]:
+def get_strong_buy_banks(symbol, limit=4):
+    if yf is None:
+        return []
     try:
-        df = yf.Ticker(symbol).upgrades_downgrades
+        frame = yf.Ticker(symbol).upgrades_downgrades
+        if frame is None or frame.empty:
+            return []
+        frame = frame.sort_index(ascending=False)
+        # Última opinión por firma ANTES de filtrar compras: elimina upgrades revocados.
+        frame = frame.dropna(subset=['Firm','ToGrade']).drop_duplicates('Firm', keep='first')
+        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        dates = pd.to_datetime(frame.index, utc=True, errors='coerce')
+        frame = frame[dates >= cutoff]
+        return frame.loc[frame['ToGrade'].str.lower().isin(STRONG_BUY_GRADES),'Firm'].tolist()[:limit]
     except Exception:
         return []
-    if df is None or df.empty or "ToGrade" not in df or "Firm" not in df:
+
+
+def get_recent_news_detailed(symbol, limit=NEWS_PER_TICKER):
+    if yf is None:
         return []
-    df = df.sort_index(ascending=False)
-    mask = df["ToGrade"].str.lower().isin(STRONG_BUY_GRADES)
-    firms = df.loc[mask, "Firm"].dropna().unique().tolist()
-    return firms[:limit]
-
-
-def get_recent_news_detailed(symbol: str, limit: int = NEWS_PER_TICKER) -> list[dict]:
     try:
         items = yf.Ticker(symbol).news or []
     except Exception:
         return []
-    out = []
-    for item in items[:limit]:
-        content = item.get("content", item)  # yfinance nuevo anida en 'content'
-        title = content.get("title")
-        if not title:
+    out, seen = [], set()
+    now = datetime.now(timezone.utc)
+    for item in items:
+        c = item.get('content') or item
+        date = core.utc_date(c.get('pubDate') or c.get('providerPublishTime'))
+        title = c.get('title')
+        canonical = c.get('canonicalUrl') or {}
+        link = canonical.get('url', '') if isinstance(canonical, dict) else ''
+        link = link or c.get('link', '')
+        if not title or title in seen or not date or not 0 <= (now-date).total_seconds() <= 7*86400:
             continue
-        summary = content.get("summary") or ""
-        link = (content.get("canonicalUrl") or {}).get("url", "")
-        out.append(
-            {
-                "title_es": translate(title),
-                "summary_es": translate(summary),
-                "link": link,
-                "sentiment": crude_sentiment(f"{title} {summary}"),
-            }
-        )
-    return out
+        if not link.startswith(('https://','http://')):
+            link = ''
+        seen.add(title)
+        out.append({'title_es':translate(title),'summary_es':translate(c.get('summary') or ''),
+                    'link':link,'published_at':date.isoformat(),'sentiment':crude_sentiment(title)})
+    return sorted(out,key=lambda n:n['published_at'],reverse=True)[:limit]
 
 
-def enrich_top(top: list[dict]) -> list[dict]:
-    """Trabajo 'caro' (traduccion, notas de bancos, noticias) solo para el
-    top ya rankeado, no para toda la watchlist."""
-    for o in top:
-        o["description_es"] = translate(o["description_en"])
-        o["strong_buy_banks"] = get_strong_buy_banks(o["symbol"])
-        o["news"] = get_recent_news_detailed(o["symbol"])
+def enrich_top(top):
+    for row in top:
+        row['description_es'] = translate(row.get('description_en') or '')
+        row['strong_buy_banks'] = get_strong_buy_banks(row['symbol'])
+        row['news'] = get_recent_news_detailed(row['symbol'])
+        row['insider_buying'] = edgar_recent_insider_buy(row['symbol'])
+        row['insider_source'] = 'SEC Form 4, ventana limitada; P incluye compra privada'
     return top
 
 
@@ -625,205 +550,7 @@ def sanitize(text: str) -> str:
     return text.encode("latin-1", errors="ignore").decode("latin-1")
 
 
-GLOSSARY = [
-    ("Score", "Numero de criterios cumplidos sobre el total de criterios con "
-              "datos disponibles para ese ticker (ej. 3/3 si a esa accion "
-              "solo le aplican 3 de los 4 criterios). El divisor puede "
-              "variar entre acciones: no todos los mercados publican los "
-              "mismos datos (ej. insider buying, ver mas abajo), asi que un "
-              "3/3 y un 3/4 no son directamente comparables en puntos "
-              "brutos, solo en proporcion de aciertos."),
-    ("P/E", "Precio / Beneficio por accion (trailing). Cuantas veces el "
-            "beneficio anual se paga por la accion. En esta tabla se compara "
-            "contra el promedio DEL MISMO SECTOR (no el global), para no "
-            "comparar por ejemplo un banco con una tecnologica. Como "
-            "referencia general (varía mucho por sector): por debajo de 15 "
-            "se suele considerar barato, entre 15 y 25 razonable, por "
-            "encima de 25-30 caro / de alto crecimiento."),
-    ("PEG", "P/E dividido por el % de crecimiento esperado de beneficios. "
-            "Por debajo de 1.5 sugiere que el precio no esta sobrepagando "
-            "ese crecimiento; por debajo de 1 se suele considerar barato."),
-    ("Crecim.", "Crecimiento interanual esperado del beneficio por accion "
-                "(EPS). Por encima del 15% se considera fuerte. "
-                "De donde sale: es el campo 'earningsGrowth' del modulo "
-                "financialData de Yahoo Finance, el mismo bloque de datos "
-                "que agrega los precios objetivo y la recomendacion de "
-                "analistas (ver 'Recomendacion' y 'Bancos' mas abajo). No "
-                "es un calculo propio de este informe ni un dato verificado "
-                "de forma independiente: es un CONSENSO construido por "
-                "Yahoo a partir de las proyecciones de los analistas que "
-                "cubren esa accion. Por eso depende directamente de cuantos "
-                "analistas la cubran (ver columna/glosario '# Analistas'): "
-                "con muchos analistas (grandes tecnologicas de EEUU) suele "
-                "ser una cifra robusta y actualizada; con pocos o ningun "
-                "analista (tipico en small/micro caps o acciones poco "
-                "seguidas fuera de EEUU) puede estar desactualizada, basada "
-                "en una sola estimacion, o directamente no existir (n/a). "
-                "Si Yahoo no tenia cobertura suficiente, este informe intenta "
-                "rellenarlo con Financial Modeling Prep (FMP) como respaldo "
-                "opcional; en ese caso se marca '(via FMP)' junto a la cifra "
-                "en la seccion de descripcion detallada. "
-                "HORIZONTE TEMPORAL (importante, no es un reloj de 12 meses "
-                "desde hoy): esta cifra compara el AÑO FISCAL de la empresa "
-                "actual/proximo contra su año fiscal anterior. El año fiscal "
-                "de una empresa NO tiene por que coincidir con el año "
-                "natural: por ejemplo, el de Apple termina en septiembre, no "
-                "en diciembre. Asi que 'crecimiento interanual' compara el "
-                "año fiscal de ESA empresa consigo mismo el año fiscal "
-                "anterior, sea cual sea su calendario — no necesariamente "
-                "'2026 vs 2025' en sentido de año natural. Aviso: ni Yahoo "
-                "ni yfinance documentan publicamente el detalle exacto de "
-                "este campo concreto, asi que esto es la convencion mas "
-                "probable, no una certeza verificada al 100%. Un 60% de "
-                "crecimiento no significa lo mismo a 1 año fiscal que a 10: "
-                "trata esta cifra siempre como una estimacion a ~1 año "
-                "fiscal, nunca plurianual."),
-    ("Insider buy", "Si algun directivo o accionista relevante compro "
-                     "acciones con su propio dinero en los ultimos 90 dias. "
-                     "Fuente primaria: SEC EDGAR (comunicados Form 4 "
-                     "oficiales, gratis, solo cubre acciones que reportan a "
-                     "la SEC); si EDGAR no tiene el ticker o falla la "
-                     "consulta, se recurre a Yahoo Finance como respaldo. "
-                     "N/D significa que ninguna de las dos fuentes tiene el "
-                     "dato para ese ticker, algo habitual fuera de EEUU "
-                     "(esas empresas no presentan Form 4); en ese caso el "
-                     "criterio no cuenta ni a favor ni en contra en el "
-                     "score."),
-    ("Rec", "Recomendacion: consenso agregado de analistas de bancos y "
-            "brokers que cubren la accion (Yahoo Finance recopila estas "
-            "notas; si Yahoo no tiene cobertura, se intenta un respaldo "
-            "opcional via Financial Modeling Prep, marcado como "
-            "'(via FMP)'). Los valores posibles son CF, CN, NC y N/D "
-            "(ver cada uno mas abajo en este glosario)."),
-    ("CF", "= Compra Fuerte. Aparece en la columna 'Rec' cuando la mayoria "
-           "de analistas recientes dan buy/strong buy sobre la accion."),
-    ("CN", "= Compra Neutral. Aparece en la columna 'Rec' cuando la mayoria "
-           "de analistas recientes dan hold (ni comprar ni vender)."),
-    ("NC", "= No Comprar. Aparece en la columna 'Rec' cuando la mayoria de "
-           "analistas recientes dan underperform/sell."),
-    ("Bancos", "Firmas de analisis (bancos de inversion, brokers) cuya nota "
-               "mas reciente sobre la accion fue de compra/sobreponderar. "
-               "Fuente: notas de upgrade/downgrade recopiladas por Yahoo "
-               "Finance, no son recomendaciones propias."),
-    ("Sentimiento noticia", "Etiqueta automatica por palabras clave sobre el "
-                             "titular+resumen de cada noticia. Es una "
-                             "heuristica simple, NO un analisis experto ni "
-                             "generado por IA: leela como orientacion, no "
-                             "como veredicto."),
-    ("Precio", "Precio actual de la accion en el momento en que se genero "
-               "ESTE informe (no un valor fijo ni anual): el screener corre "
-               "varias veces al dia (ver workflows de GitHub Actions) y cada "
-               "vez consulta precios en vivo. En cada moneda local del "
-               "ticker (ver columna 'Pais' para contexto: USD para EEUU, "
-               "EUR para Europa, KRW para Samsung, etc.), no convertido a "
-               "una divisa comun, asi que no compares precios en bruto "
-               "entre acciones de paises distintos."),
-    ("P.OBJ", "Precio objetivo medio segun el consenso de analistas "
-                   "(campo targetMeanPrice de Yahoo Finance, mismo modulo "
-                   "que 'Crecim.' y 'Rec'). Igual que esos "
-                   "campos, depende de la cobertura de analistas: mas "
-                   "fiable con mucha cobertura, mas ruidoso o ausente (n/d) "
-                   "con poca. NO es una prediccion propia de este informe. "
-                   "HORIZONTE TEMPORAL (importante, NO es 'hasta el 31 de "
-                   "diciembre' ni un reloj que arranca el dia de este "
-                   "informe): por convencion de Wall Street, un 'price "
-                   "target' es a ~12 MESES desde que ESE analista publico "
-                   "su nota — no desde hoy. Yahoo agrega los targets de "
-                   "varios analistas que publicaron sus notas en fechas "
-                   "distintas (uno hace 2 semanas, otro hace 3 meses), asi "
-                   "que 'P.Objetivo' es una media de estimaciones a ~12 "
-                   "meses desde momentos ligeramente distintos, no un plazo "
-                   "fijo idéntico para todas. En cualquier caso, nunca es "
-                   "una proyeccion a 5 o 10 años."),
-    ("Potencial", "Diferencia porcentual entre 'P.Objetivo' y 'Precio': "
-                  "cuanto subiria (o bajaria) la accion si alcanzase el "
-                  "precio objetivo de consenso EN ~12 MESES (ver horizonte "
-                  "temporal en 'P.Objetivo'). Positivo no garantiza subida "
-                  "real, es solo la distancia a la expectativa actual de "
-                  "los analistas a un año vista, con las mismas "
-                  "limitaciones de cobertura que 'P.Objetivo'."),
-    ("Cap.", "Capitalizacion bursatil (precio de la accion x numero "
-                      "de acciones en circulacion), segun Yahoo Finance. Se "
-                      "usa para clasificar una accion como 'pequeña "
-                      "capitalizacion' en la seccion 2 de este informe "
-                      f"(por debajo de {SMALL_CAP_MAX / 1_000_000_000:.0f}.000 "
-                      "millones de USD)."),
-    ("Analy", "Numero de analistas de bancos/brokers que Yahoo Finance "
-                     "contabiliza cubriendo esa accion (campo "
-                     "numberOfAnalystOpinions). Cuantos menos analistas, "
-                     "menos fiables son 'Crecim.' y 'Rec': se "
-                     "basan en menos opiniones y se actualizan con menos "
-                     "frecuencia. n/d = Yahoo no reporta cobertura para ese "
-                     "ticker."),
-    ("Calidad", "Version simplificada del Piotroski F-Score: suma 4 señales "
-                "de solidez financiera (rentabilidad, margen, apalancamiento "
-                "y liquidez, detalladas en 'ROE', 'Margen operativo', "
-                "'Deuda/Patrimonio' y 'Liquidez' mas abajo). Igual que "
-                "'Score', se muestra como aciertos/aplicables porque no "
-                "todas las acciones tienen los 4 datos disponibles. "
-                "Evidencia: el estudio original de Piotroski (1976-1996) "
-                "encontro que las acciones con F-Score alto batieron a las "
-                "de F-Score bajo en, de media, unos 23 puntos porcentuales "
-                "al año — PERO ese estudio aplicaba el F-Score solo a "
-                "acciones YA baratas (value), no a todo el mercado; usado "
-                "solo, el efecto es mucho mas debil. Por eso en este informe "
-                "la Calidad NO se mezcla con el Score principal: se usa como "
-                "criterio de DESEMPATE despues de 'Score' (ver rank_top en "
-                "el codigo), asi refuerza el ranking de valor/crecimiento en "
-                "vez de sustituirlo. Ademas, ningun factor de este tipo "
-                "garantiza rendimiento futuro: su efecto historico varia "
-                "por ciclo de mercado y tiende a debilitarse con el tiempo."),
-    ("ROE", "Return on Equity (retorno sobre el patrimonio neto): beneficio "
-            "neto dividido entre el patrimonio de los accionistas. Mide que "
-            "tan eficiente es la empresa generando beneficio con el capital "
-            "que ya tiene, sin depender de mas deuda o mas emision de "
-            "acciones. Por encima del 15% se considera bueno en este "
-            "informe. Fuente: Yahoo Finance (financialData)."),
-    ("Margen operativo", "Beneficio operativo dividido entre ingresos: que "
-                         "parte de cada venta se convierte en beneficio "
-                         "antes de intereses e impuestos. Varia mucho por "
-                         "sector (un supermercado y una empresa de software "
-                         "no son comparables), por eso se compara contra la "
-                         "media DEL MISMO SECTOR, igual que el P/E. Fuente: "
-                         "Yahoo Finance (financialData)."),
-    ("Deuda/Patrimonio", "Deuda total dividida entre el patrimonio neto, en "
-                         "porcentaje (100 = la empresa debe tanto como vale "
-                         "su patrimonio). Por debajo de 100 se considera "
-                         "apalancamiento conservador en este informe: menos "
-                         "riesgo de que una subida de tipos de interes o una "
-                         "mala racha ahogue a la empresa. Fuente: Yahoo "
-                         "Finance (financialData)."),
-    ("Liquidez", "Current ratio: activo corriente dividido entre pasivo "
-                 "corriente, es decir cuantas veces puede la empresa cubrir "
-                 "sus deudas de corto plazo con lo que tiene a mano. Por "
-                 "encima de 1.5 se considera comodo en este informe; por "
-                 "debajo de 1 significa que el activo corriente no llega a "
-                 "cubrir el pasivo corriente. Fuente: Yahoo Finance "
-                 "(financialData)."),
-    ("Cesta Trump trade", "IMPORTANTE: esta cesta NO es el patrimonio "
-                     "personal de Donald Trump ni sale de ningun informe de "
-                     "activos declarado (esos informes publicos, cuando "
-                     "existen, son sobre todo inmuebles y negocios privados, "
-                     "no acciones cotizadas). Es una seleccion tematica de "
-                     "acciones que la prensa financiera (Goldman Sachs, "
-                     "Kiplinger, Bloomberg, Investing.com, entre otros) "
-                     "menciona repetidamente como beneficiarias o "
-                     "perjudicadas por politicas de su administracion: "
-                     "aranceles, gasto en defensa, desregulacion financiera, "
-                     "energia, cripto e inmigracion. Son tesis especulativas "
-                     "y muy sensibles a titulares y giros de politica: por "
-                     "ejemplo, GEO Group subio fuerte tras la eleccion por "
-                     "sus contratos de detencion con ICE y luego borro esas "
-                     "subidas cuando hubo backlash publico. Que una accion "
-                     "aparezca aqui no es una recomendacion de compra ni de "
-                     "venta en ningun sentido, solo documenta una narrativa "
-                     "de mercado."),
-    ("F.Y.", "Mes/año en que cierra el proximo año fiscal de la empresa "
-              "(no siempre coincide con el año natural: Apple y Microsoft, "
-              "por ejemplo, cierran en septiembre y junio respectivamente). "
-              "Util para saber cuando presentara sus resultados anuales "
-              "completos."),
-]
+GLOSSARY = [('Score', 'Aciertos sobre 4 criterios fijos: descuento P/E del 20% frente a mediana de otros pares, FCF yield >=5%, EPS FY+1/FY0 >=15% con estimaciones suficientes e ingresos >=5%. Un dato ausente no aumenta el score. Se exige 3/4, calidad >=2/4 y 7/8 criterios disponibles. Orden: 55% valor/crecimiento +45% calidad. Heurística sin backtest.'), ('P/E', 'Precio/beneficio trailing positivo. Referencia: mediana de al menos cinco OTRAS empresas de la misma industria y país, con fechas verificables, presentes en la watchlist. No es un benchmark sectorial exhaustivo. Sin pares suficientes queda sin dato. P/E bajo no implica infravaloración.'), ('PEG', 'P/E trailing / porcentaje de crecimiento estimado FY+1 frente a FY0. Solo orientativo: mezcla beneficio histórico y estimación futura, no es PEG plurianual estándar. No puntúa, para no duplicar crecimiento. No se calcula sobre pérdidas, crecimiento >100% ni estimaciones insuficientes.'), ('Crecim.', 'EPS medio estimado FY+1 / EPS medio FY0 -1. Yahoo earnings_estimate, filas 0y y +1y; FMP stable como respaldo ordenado por cierre fiscal. No se interpreta earningsGrowth como consenso. Se requieren EPS positivos, mínimo tres analistas en ambos periodos y rango alto-bajo <=50% del EPS medio. Fechas de actualización individuales no disponibles; confirmar con fuente primaria.'), ('Insider buy', 'Compras P de valores no derivados según Form 4 SEC, con fecha de operación dentro de 90 días. P incluye mercado abierto O compra privada: no permite afirmar compra exclusivamente en bolsa. No suma puntos ni demuestra rentabilidad. N/D incluye fallo de red, ventana incompleta y falta de User-Agent. No significa ausencia de operaciones. No reconcilia enmiendas.'), ('Rec', 'Etiqueta del consenso Yahoo, sin factor de puntuación. No se usa FMP grade como sustituto de consenso. CF/CN/NC son etiquetas del proveedor, no recomendaciones propias.'), ('CF', "= Compra Fuerte. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan buy/strong buy sobre la accion."), ('CN', "= Compra Neutral. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan hold (ni comprar ni vender)."), ('NC', "= No Comprar. Aparece en la columna 'Rec' cuando la mayoria de analistas recientes dan underperform/sell."), ('Bancos', 'Última nota disponible por firma, filtrada a 90 días, que conserva una calificación positiva. Una compra antigua revocada por una rebaja posterior no se incluye. La lista no es consenso completo ni factor del score.'), ('Sentimiento noticia', 'No se infiere impacto bursátil con coincidencias de palabras. Se muestran titulares fechados en los últimos siete días; contexto y efecto quedan sin evaluar.'), ('Precio', 'Último precio entregado por el proveedor, que puede tener retraso. La fecha de cotización se guarda en JSON/HTML. No se afirma que sea una cotización en tiempo real.'), ('P.OBJ', "Precio objetivo medio segun el consenso de analistas (campo targetMeanPrice de Yahoo Finance, mismo modulo que 'Crecim.' y 'Rec'). Igual que esos campos, depende de la cobertura de analistas: mas fiable con mucha cobertura, mas ruidoso o ausente (n/d) con poca. NO es una prediccion propia de este informe. HORIZONTE TEMPORAL (importante, NO es 'hasta el 31 de diciembre' ni un reloj que arranca el dia de este informe): por convencion de Wall Street, un 'price target' es a ~12 MESES desde que ESE analista publico su nota — no desde hoy. Yahoo agrega los targets de varios analistas que publicaron sus notas en fechas distintas (uno hace 2 semanas, otro hace 3 meses), asi que 'P.Objetivo' es una media de estimaciones a ~12 meses desde momentos ligeramente distintos, no un plazo fijo idéntico para todas. En cualquier caso, nunca es una proyeccion a 5 o 10 años."), ('Potencial', "Diferencia porcentual entre 'P.Objetivo' y 'Precio': cuanto subiria (o bajaria) la accion si alcanzase el precio objetivo de consenso EN ~12 MESES (ver horizonte temporal en 'P.Objetivo'). Positivo no garantiza subida real, es solo la distancia a la expectativa actual de los analistas a un año vista, con las mismas limitaciones de cobertura que 'P.Objetivo'."), ('Cap.', 'La tabla muestra capitalización en unidad principal de la moneda de cotización. Para small caps se convierte a USD; umbral 2.000 millones USD. GBP/GBp y otras subunidades se normalizan para volumen. Discrepancias frente a precio por acciones >25% se remiten a revisión (ADR/clases/unidades).'), ('Analy', 'Mínimo de analistas de EPS en FY0 y FY+1, no el número de recomendaciones bursátiles. Se exigen tres y dispersión acotada para usar crecimiento. Más analistas no garantiza acierto.'), ('Calidad', 'Cuatro reglas heurísticas, NO Piotroski F-Score: ROE >=15%, margen positivo >=mediana de pares, deuda/patrimonio entre 0 y 100%, current ratio >=1,5. Denominador fijo cuatro. No se usan estos umbrales para recomendar banca, seguros o inmobiliario: requieren otro modelo.'), ('ROE', 'Return on Equity (retorno sobre el patrimonio neto): beneficio neto dividido entre el patrimonio de los accionistas. Mide que tan eficiente es la empresa generando beneficio con el capital que ya tiene, sin depender de mas deuda o mas emision de acciones. Por encima del 15% se considera bueno en este informe. Fuente: Yahoo Finance (financialData).'), ('Margen operativo', 'Resultado operativo/ingresos. Se exige positivo y se compara con mediana de al menos cinco otros pares de industria/país en la watchlist. No hay sustitución por media mundial.'), ('Deuda/Patrimonio', 'Deuda total dividida entre el patrimonio neto, en porcentaje (100 = la empresa debe tanto como vale su patrimonio). Por debajo de 100 se considera apalancamiento conservador en este informe: menos riesgo de que una subida de tipos de interes o una mala racha ahogue a la empresa. Fuente: Yahoo Finance (financialData).'), ('Liquidez', 'Current ratio: activo corriente dividido entre pasivo corriente, es decir cuantas veces puede la empresa cubrir sus deudas de corto plazo con lo que tiene a mano. Por encima de 1.5 se considera comodo en este informe; por debajo de 1 significa que el activo corriente no llega a cubrir el pasivo corriente. Fuente: Yahoo Finance (financialData).'), ('FCL', 'FCF en moneda de los estados convertido a USD / capitalización en USD. Sin moneda o cambio verificable no se calcula. Se exige FCF positivo y >=5% suma una señal. Un periodo de caja excepcional puede engañar: validar normalización plurianual.'), ('FR', 'OK: datos esenciales presentes y verificables; Alto: riesgo medido incumple; Revisar: faltan datos, están fuera de plazo, instrumento no compatible o modelo sectorial no aplicable. Se bloquean pérdidas, EBITDA/FCF/margen/patrimonio no positivos, deuda neta/EBITDA >4 y liquidez <1 millón USD/día. Cotización <=7 días; cierre financiero <=180 días. No cubre todos los riesgos.'), ('Cesta Trump trade', 'Lista temática estática heredada del archivo original, sin validación de su vigencia política. Solo informativa: strict=False puede mostrar descartadas y datos insuficientes. No se considera selección de oportunidades ni patrimonio personal.'), ('F.Y.', 'Cierre fiscal estimado según proveedor; no es la fecha de publicación de resultados.')]
 
 # Paleta institucional (inspirada en el formato tipico de notas de analisis
 # de bancos de inversion: navy + sans-serif + tablas con cabecera solida,
@@ -951,8 +678,8 @@ MAX_FICHA_SPACING = 40
 MAX_TABLE_ROW_HEIGHT = 12
 
 
-SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.OBJ", "Potencial", "Pais", "Sector", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Rec", "F.Y."]
-SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "Rec", "F.Y."}
+SUMMARY_HEADERS = ["#", "Ticker", "Precio", "P.OBJ", "Potencial", "Pais", "Sector", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Rec", "F.Y."]
+SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "Calidad", "P/E", "PEG", "Crecim.", "Insider buy", "FCL", "FR", "Rec", "F.Y."}
 # Anchos calculados a partir del ancho REAL en mm (Helvetica 8) del texto
 # mas largo que debe caber sin partirse en cada columna, mas los 2mm que
 # fpdf2 reserva de margen interno de celda (c_margin = 1mm por lado).
@@ -972,10 +699,12 @@ SUMMARY_LINK_COLS = {"Precio", "P.OBJ", "Potencial", "Cap.", "Analy", "Score", "
 #   etc, asi que el peor caso de cada columna es mucho mas corto.
 # Medidos con fpdf: cada valor = max(ancho cabecera negrita, ancho peor
 # valor abreviado) + 2mm de margen interno de celda. Suma total 187,6mm.
-SUMMARY_WIDTHS = (5.1, 16.6, 12.2, 12.2, 14.6, 8.1, 15.0, 10.9, 9.7, 9.8, 12.2, 9.1, 8.0, 12.3, 17.1, 7.2, 9.1)
+# FCL (ej. "12,3%" o "-4,5%") y FR ("OK"/"Alto"/"n/d") se añadieron despues:
+# 9.5 y 8.0 mm, mismo criterio (texto mas largo + 2mm de margen). Suma 205,1mm.
+SUMMARY_WIDTHS = (5.1, 16.6, 12.2, 12.2, 14.6, 8.1, 15.0, 10.9, 9.7, 9.8, 12.2, 9.1, 8.0, 12.3, 17.1, 9.5, 8.0, 7.2, 9.1)
 # Numeros a la derecha (mas facil comparar cifras de un vistazo), texto a la
 # izquierda; "Insider buy" centrado por ser un valor corto (Si/No/N/D).
-SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "L", "L"]
+SUMMARY_ALIGN = ["R", "L", "R", "R", "R", "L", "L", "R", "R", "R", "R", "R", "R", "R", "C", "R", "C", "L", "L"]
 
 # Pais/sector abreviados (pedido explicito: nada de nombres largos que
 # obliguen a estirar la tabla o dejen huecos). Fallback: primeras 3-4
@@ -1166,13 +895,15 @@ def render_summary_table(pdf: FPDF, entries: list[dict], glossary_links: dict, s
             row.cell(sanitize(sector_abbr(o["sector"])))
             row.cell(format_market_cap(o["market_cap"]))
             row.cell(str(o["num_analysts"]) if o["num_analysts"] else "n/d")
-            row.cell(f"{o['score']}/{o['checks_applicable']}")
-            row.cell(f"{o['quality_score']}/{o['quality_applicable']}")
+            row.cell(f"{o['score']}/4")
+            row.cell(f"{o['quality_score']}/4")
             row.cell(fmt_es(o["pe"], 1) if o["pe"] else "n/d")
             row.cell(fmt_es(o["peg"], 2) if o["peg"] else "n/d")
-            row.cell(fmt_pct(o["growth"] * 100) if o["growth"] else "n/d")
+            row.cell(fmt_pct(o["growth"] * 100) if o["growth"] is not None else "n/d")
             insider = o["insider_buying"]
             row.cell("N/D" if insider is None else ("Si" if insider else "No"))
+            row.cell(fmt_pct(o["fcf_yield"] * 100) if o.get("fcf_yield") is not None else "n/d")
+            row.cell(risk_label(o))
             row.cell(o["recommendation"])
             row.cell(o["fiscal_year_end"])
 
@@ -1184,10 +915,10 @@ def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_l
     ocupa antes de pintarlo de verdad. register_section=False en esa pasada
     de medicion: si no, cada ficha entraria DOS veces en el indice."""
     if register_section:
-        blk.start_section(sanitize(o["symbol"]), level=1)
+        blk.start_section(sanitize(shown_name(o)), level=1)
     blk.set_font("Helvetica", size=12, style="B")
     blk.set_x(x)
-    header = f"{section_number}.{i} {o['symbol']} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
+    header = f"{section_number}.{i} {shown_name(o)} ({o['sector'] or 'n/a'}, {o['country'] or 'n/a'})"
     if theme:
         header += f" - {theme}"
     blk.cell(width, 8, sanitize(header), new_x="LEFT", new_y="NEXT")
@@ -1200,7 +931,7 @@ def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_l
     upside_txt = f" ({fmt_pct(o['upside'] * 100, signed=True)})" if o["upside"] is not None else ""
     blk.multi_cell(
         width, 6,
-        sanitize(f"Precio actual (a fecha de este informe): {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
+        sanitize(f"Precio de la última cotización disponible: {price_txt} | Precio objetivo a ~12 meses (consenso analistas): {target_txt}{upside_txt}"),
         link=glossary_links["Precio"], align="L",
     )
 
@@ -1209,13 +940,13 @@ def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_l
     sector_avg_txt = fmt_es(o["sector_avg_pe"], 1) if o.get("sector_avg_pe") else "n/d"
     blk.multi_cell(
         width, 6,
-        sanitize(f"P/E: {pe_txt} -> {pe_verdict(o['pe'])} | media del sector ({o['sector'] or 'n/a'}): {sector_avg_txt}"),
+        sanitize(f"P/E: {pe_txt} (trailing) | mediana de pares ({o.get('peer_count',0)}): {sector_avg_txt}"),
         link=glossary_links["P/E"], align="L",
     )
 
     # Nota de procedencia: si Yahoo no tenia el dato y se relleno con FMP,
     # se marca explicitamente (ver glosario "Crecim." / "Recomendacion").
-    growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] else "n/d"
+    growth_txt = fmt_pct(o["growth"] * 100) if o["growth"] is not None else "n/d"
     growth_note = " (via FMP)" if o.get("growth_source") == "FMP" else ""
     rec_note = " (via FMP)" if o.get("recommendation_source") == "FMP" else ""
     blk.set_x(x)
@@ -1234,15 +965,20 @@ def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_l
     blk.multi_cell(
         width, 6,
         sanitize(
-            f"Calidad {o['quality_score']}/{o['quality_applicable']}: ROE {roe_txt} | "
+            f"Calidad {o['quality_score']}/4: ROE {roe_txt} | "
             f"margen operativo {margin_txt} (sector: {sector_margin_txt}) | "
             f"deuda/patrimonio {debt_txt} | liquidez {liquidity_txt}"
         ),
         link=glossary_links["Calidad"], align="L",
     )
 
+    blk.set_x(x)
+    blk.multi_cell(width, 5, sanitize(f"Prioridad: {o.get('opportunity_score',0):.1f}/100 | Cobertura: {o.get('coverage',0):.0%} | Estado: {o.get('status','sin evaluar')} | Cotizacion: {o.get('quote_at') or 'sin fecha'}"), align="L")
+    if o.get('reasons'):
+        blk.set_x(x)
+        blk.multi_cell(width, 5, sanitize("Revisar: " + "; ".join(o['reasons'])), align="L")
     banks = o.get("strong_buy_banks") or []
-    banks_txt = ", ".join(banks) if banks else "sin nota de compra fuerte reciente"
+    banks_txt = ", ".join(banks) if banks else "no consultado o sin nota positiva reciente"
     blk.set_x(x)
     blk.cell(width, 6, "Bancos/entidades con compra fuerte:", link=glossary_links["Bancos"])
     blk.ln(6)
@@ -1251,7 +987,7 @@ def _render_ficha(blk: FPDF, x: float, width: float, i: int, o: dict, glossary_l
     blk.multi_cell(width, 5, sanitize(banks_txt), align="L")
 
     blk.set_x(x)
-    description = o.get("description_es") or "Sin descripcion disponible."
+    description = o.get("description_es") or o.get("description_en") or "Sin descripcion disponible."
     blk.multi_cell(width, 5, sanitize(description), align="L")
     blk.ln(4)
 
@@ -1352,6 +1088,7 @@ def estimate_toc_pages(n_top: int, n_small: int, n_trump: int) -> int:
     fake_outline.append(section("Cesta tematica 'Trump trade'", 0))
     fake_outline += [section(f"P{i}", 1) for i in range(n_trump)]
     fake_outline.append(section("Noticias recientes", 0))
+    fake_outline.append(section("Oportunidades con margen de seguridad", 0))
     fake_outline.append(section("Glosario de variables", 0))
 
     scratch = ReportPDF(orientation="L", format="A4")
@@ -1516,7 +1253,7 @@ def draw_cover_page(pdf: FPDF, title_text: str) -> None:
     pdf.cell(pdf.epw, credit_h, sanitize(f"{datetime.now():%d/%m/%Y a las %H:%M}"), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_x(pdf.l_margin)
     pdf.set_font("Helvetica", size=8, style="I")
-    pdf.cell(pdf.epw, credit_h, "Generado por IA", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(pdf.epw, credit_h, "Generado mediante reglas heurísticas", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.page_background = None
 
@@ -1541,7 +1278,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     # exige pagina asignada desde ya; se corrigen al final del todo.
     glossary_links = {name: pdf.add_link(page=1) for name, _ in GLOSSARY}
 
-    draw_cover_page(pdf, "Informe de acciones recomendadas")
+    draw_cover_page(pdf, "DEMO - datos ficticios" if rows and all(r.get("growth_source") == "DEMO" for r in rows) else "Candidatas para estudiar")
 
     # --- Indice (paginas reservadas EXACTAS, se rellenan solas al final) ---
     # Con un subpunto por accion (ver render_detailed_descriptions) el
@@ -1576,14 +1313,18 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     section_header(pdf, "Seccion 1", "1. Panorama de mercado")
 
     disclaimer_text = (
-        "Informe generado por IA de forma automatica, basado en datos publicos "
+        "Informe generado mediante reglas de forma automatica, basado en datos publicos "
         "(Yahoo Finance, SEC EDGAR y, opcionalmente, Financial Modeling Prep). No "
         "constituye asesoramiento financiero ni recomendacion de inversion "
         "personalizada. El diseño de este documento esta inspirado, con fines de "
         "legibilidad, en el formato habitual de una carta/nota de analisis "
         "financiero; no es una publicacion real de J.P. Morgan Chase & Co., ING, "
         "Value School ni de ninguna otra entidad financiera regulada, ni esta "
-        "afiliado, respaldado o revisado por ellas."
+        "afiliado, respaldado o revisado por ellas. Limitaciones conocidas: no se ha "
+        "realizado un backtest, asi que la rentabilidad de estas reglas no esta "
+        "demostrada; la consulta a SEC EDGAR no se ha probado en vivo con una "
+        "identidad real (User-Agent); y Financial Modeling Prep y el envio por "
+        "Telegram tampoco estan validados."
     )
     pdf.set_font("Helvetica", size=7.5)
     disclaimer_h = pdf.multi_cell(pdf.epw, 4, disclaimer_text, align="L", dry_run=True, output="HEIGHT")
@@ -1610,8 +1351,9 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     col_w = pdf.epw / 3
     y0 = pdf.get_y()
     render_pie_block(pdf, pdf.l_margin, col_w - 6, y0, "Mercados - todas las acciones analizadas", dict(coverage.most_common()))
-    render_pie_block(pdf, pdf.l_margin + col_w, col_w - 6, y0, f"Mercados - Top {len(top)}", dict(top_coverage.most_common()))
-    render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Sectores - Top {len(top)}", dict(top_sector_counts.most_common()))
+    if top:  # sin candidatas no hay nada que repartir en un grafico
+        render_pie_block(pdf, pdf.l_margin + col_w, col_w - 6, y0, f"Mercados - Top {len(top)}", dict(top_coverage.most_common()))
+        render_pie_block(pdf, pdf.l_margin + 2 * col_w, col_w - 6, y0, f"Sectores - Top {len(top)}", dict(top_sector_counts.most_common()))
     pdf.set_y(y0 + chart_block_h)
 
     # Aviso legal anclado al pie de la pagina (no justo debajo de las
@@ -1642,9 +1384,24 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.cell(0, 6, "Toca los encabezados de columna para saltar a la explicacion de cada variable (seccion Glosario).", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK)
     pdf.ln(3)
-    render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
-    pdf.add_page()
-    render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
+    if top:
+        render_summary_table(pdf, top, glossary_links, section_bg=SECTION2_BG)
+        pdf.add_page()
+        render_detailed_descriptions(pdf, top, glossary_links, section_number=2)
+    else:
+        pdf.set_font("Helvetica", size=10, style="B")
+        pdf.multi_cell(
+            pdf.epw, 6,
+            sanitize(
+                f"Hoy ninguna de las {len(rows)} acciones analizadas cumple el filtro "
+                f"(al menos {MIN_SCORE_RATIO:.0%} de los criterios de valor, "
+                f"7 de 8 comprobaciones con dato, calidad >=2/4, sin beneficios "
+                f"negativos, apalancamiento excesivo ni volumen insuficiente). "
+                f"No mostrar candidatas es el resultado esperado cuando el mercado no "
+                f"cumple estas reglas; no demuestra ausencia de oportunidades."
+            ),
+            align="L",
+        )
 
     # --- Seccion 3: Empresas de pequeña capitalizacion ---
     # Fondo de pagina propio para diferenciarla a simple vista (se aplica a
@@ -1679,24 +1436,14 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         render_detailed_descriptions(pdf, top_small, glossary_links, section_number=3)
     else:
         pdf.set_font("Helvetica", size=9)
-        pdf.cell(0, 6, "Ninguna accion de la watchlist esta por debajo del umbral de pequeña capitalizacion.", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, "Ninguna pequeña capitalizacion con datos suficientes supera el filtro configurado.", new_x="LMARGIN", new_y="NEXT")
 
     # --- Seccion 4: Cesta tematica "Trump trade" ---
     pdf.page_background = SECTION4_BG
     pdf.add_page()
     pdf.start_section("Cesta tematica 'Trump trade'")
     section_header(pdf, "Seccion 4", "4. Cesta tematica 'Trump trade'")
-    trump_intro = sanitize(
-        "Esta seccion NO es el patrimonio personal de Donald Trump ni sale de "
-        "ningun informe de activos declarado. Es una cesta tematica de acciones "
-        "que la prensa financiera (Goldman Sachs, Kiplinger, Bloomberg, "
-        "Investing.com, entre otros) asocia repetidamente con politicas de su "
-        "administracion (aranceles, defensa, desregulacion, energia, cripto, "
-        "inmigracion). Son tesis especulativas, sensibles a titulares y pueden "
-        "revertirse de un dia para otro (ver detalle y ejemplo en el Glosario, "
-        "entrada 'Cesta Trump trade'). No es una recomendacion de compra ni de "
-        "venta."
-    )
+    trump_intro = sanitize("Cesta tematica estatica heredada del script original, sin validar su vigencia politica. No es el patrimonio personal de Donald Trump ni una seleccion de oportunidades. Puede incluir empresas descartadas o con datos insuficientes; consultar FR y los motivos en JSON.")
     pdf.set_font("Helvetica", size=8, style="I")
     pdf.set_text_color(*BODY_GRAY)
     pdf.multi_cell(pdf.epw, 5, trump_intro, align="L")
@@ -1704,9 +1451,13 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.ln(3)
     # Tabla en esta misma hoja; solo las fichas se van a la siguiente,
     # igual que en las secciones 2 y 3.
-    render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG)
-    pdf.add_page()
-    render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
+    if top_trump:
+        render_summary_table(pdf, top_trump, glossary_links, section_bg=SECTION4_BG)
+        pdf.add_page()
+        render_detailed_descriptions(pdf, top_trump, glossary_links, section_number=4, theme_map=TRUMP_TRADE_THEMES)
+    else:
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(0, 6, "Sin valores de esta cesta en la watchlist.")
 
     # --- Seccion 5: Noticias recientes (al final, antes del glosario) ---
     # El azul mas suave de todos, igual que el Glosario (seccion 6): el
@@ -1717,6 +1468,9 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
     pdf.add_page()
     pdf.start_section("Noticias recientes")
     section_header(pdf, "Seccion 5", "5. Noticias recientes")
+    if not any(o.get("news") for o in top + top_small + top_trump):
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(0, 6, "Noticias no consultadas o sin titulares recientes verificables.")
     seen_symbols = set()
     for o in top + top_small + top_trump:
         if o["symbol"] in seen_symbols:
@@ -1727,7 +1481,7 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             continue
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)
-        pdf.cell(0, 7, sanitize(o["symbol"]), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 7, sanitize(shown_name(o)), new_x="LMARGIN", new_y="NEXT")
         for item in news:
             pdf.set_font("Helvetica", size=9, style="B")
             pdf.set_text_color(*NAVY)
@@ -1749,12 +1503,18 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
             pdf.ln(2)
         pdf.ln(2)
 
-    # --- Seccion 6: Glosario (aqui aterrizan todos los hipervinculos) ---
+    render_conviction_pdf(pdf, rows)
+
+    # --- Seccion 7: Glosario (aqui aterrizan todos los hipervinculos) ---
     pdf.add_page()
     pdf.start_section("Glosario de variables")
     glossary_page = pdf.page_no()
-    section_header(pdf, "Seccion 6", "6. Glosario de variables")
+    section_header(pdf, "Seccion 7", "7. Glosario de variables")
     for name, explanation in GLOSSARY:
+        # Mantener el encabezado junto a las primeras líneas de su explicación.
+        if pdf.get_y() + 22 > pdf.h - pdf.b_margin:
+            pdf.add_page()
+        pdf.set_link(glossary_links[name], page=pdf.page_no(), y=pdf.get_y())
         pdf.set_font("Helvetica", size=11, style="B")
         pdf.set_x(pdf.l_margin)
         pdf.cell(0, 7, sanitize(name), new_x="LMARGIN", new_y="NEXT")
@@ -1762,10 +1522,8 @@ def build_pdf(top: list[dict], top_small: list[dict], top_trump: list[dict], row
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(pdf.epw, 5, sanitize(explanation), align="L")
         pdf.ln(3)
-    for name in glossary_links:
-        pdf.set_link(glossary_links[name], page=glossary_page)
 
-    out_path = os.path.join(os.path.dirname(__file__), f"InformeFinanciero_{datetime.now():%d-%m-%Y}.pdf")
+    out_path = str(PDF_OUTPUT_DIR / f"InformeFinanciero_{datetime.now():%d-%m-%Y}.pdf")
     pdf.output(out_path)
     return out_path
 
@@ -1775,44 +1533,235 @@ GENERATE_NOW_BUTTON = {
 }
 
 
-def send_telegram_document(path: str, caption: str) -> None:
-    # .split()/"".join() quita cualquier espacio o salto de linea que se
-    # haya colado al copiar el secret (frecuente al pegar desde el movil):
-    # un token de Telegram nunca lleva espacios de verdad.
-    token = "".join(os.environ["TELEGRAM_BOT_TOKEN"].split())
-    chat_id = os.environ["TELEGRAM_CHAT_ID"].strip()
-    url = f"https://api.telegram.org/bot{token}/sendDocument"
-    with open(path, "rb") as f:
-        resp = requests.post(
-            url,
-            data={
-                "chat_id": chat_id,
-                "caption": caption,
-                "reply_markup": json.dumps(GENERATE_NOW_BUTTON),
-            },
-            files={"document": f},
-            timeout=30,
-        )
-    if not resp.ok:
-        print(f"Telegram respondio {resp.status_code}: {resp.text}")
-    resp.raise_for_status()
+def send_telegram_document(path, caption):
+    if requests is None:
+        raise RuntimeError('Falta requests; instala requirements.txt')
+    token = ''.join(os.environ.get('TELEGRAM_BOT_TOKEN','').split())
+    chat = os.environ.get('TELEGRAM_CHAT_ID','').strip()
+    if not token or not chat:
+        raise ValueError('Configura TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID para --send')
+    try:
+        with open(path,'rb') as stream:
+            response = requests.post(f'https://api.telegram.org/bot{token}/sendDocument',
+                data={'chat_id':chat,'caption':caption,'reply_markup':json.dumps(GENERATE_NOW_BUTTON)},
+                files={'document':stream},timeout=(10,60))
+        if not response.ok or not response.json().get('ok'):
+            raise RuntimeError('Telegram rechazó el envío; revisa la configuración')
+    except requests.RequestException:
+        # No reintentar POST automáticamente (duplicados) ni revelar URL con token.
+        raise RuntimeError('Envío no confirmado; comprueba Telegram antes de repetir') from None
 
 
-def generate_and_send_report() -> None:
-    symbols = load_watchlist()
-    rows, avg_pe = analyze(symbols)
-    top = rank_top(rows)
-    small_cap_rows = [r for r in rows if is_small_cap(r)]
-    top_small = rank_top(small_cap_rows, n=SMALL_CAP_TOP_N)
-    trump_rows = [r for r in rows if r["symbol"] in TRUMP_TRADE_THEMES]
-    top_trump = rank_top(trump_rows, n=len(trump_rows))
-    top = enrich_top(top)
-    top_small = enrich_top(top_small)
-    top_trump = enrich_top(top_trump)
-    pdf_path = build_pdf(top, top_small, top_trump, rows, avg_pe)
-    print(f"PDF generado: {pdf_path}")
-    send_telegram_document(pdf_path, caption=f"Screener - Top {len(top)} ({datetime.now():%d/%m/%Y})")
+def generate_and_send_report():
+    """Punto de entrada de bot_listener.py (/informe o botón de Telegram): pide
+    el envío de forma explícita. Lanza error si falla, para que el workflow lo
+    marque en rojo en vez de terminar en silencio."""
+    code = main(['--pdf', '--enrich', '--send'])
+    if code != 0:
+        raise RuntimeError(f'El informe no se generó o no se envió (código {code})')
 
+
+def demo_snapshot():
+    now = datetime.now(timezone.utc)
+    records=[]
+    for i in range(8):
+        info = dict(currency='USD',financialCurrency='USD',quoteType='EQUITY',sector='Industrials',
+            industry='Demo Industry',country='United States',currentPrice=20,marketCap=1e9,
+            sharesOutstanding=50e6,averageVolume=2e6,freeCashflow=80e6,totalDebt=100e6,
+            totalCash=60e6,ebitda=80e6,trailingPE=8 if i==0 else 15+i,
+            trailingEps=2,returnOnEquity=.2,operatingMargins=.2 if i==0 else .15,
+            debtToEquity=30,currentRatio=2,bookValue=10,revenueGrowth=.1,
+            regularMarketTime=now.timestamp(),mostRecentQuarter=(now-timedelta(days=70)).timestamp(),
+            longBusinessSummary='EMPRESA FICTICIA. Datos sintéticos para probar el programa; no invertir.')
+        estimate=core.expected_growth({'avg':2,'low':1.9,'high':2.1,'numberOfAnalysts':8},
+                                     {'avg':2.5,'low':2.4,'high':2.6,'numberOfAnalysts':7})
+        estimate['growth_source']='DEMO'
+        if i==6:
+            info['trailingEps']=-1
+        if i==7:
+            info.pop('totalCash')
+        statements={'income':[],'cashflow':[],'balance':[]}
+        for age in range(4):
+            date=f'{now.year-1-age}-12-31'
+            statements['income'].append({'date':date,'Diluted EPS':2-.1*age,
+                'Net Income':100e6-5e6*age,'EBIT':80e6,'Pretax Income':75e6,
+                'Tax Provision':15e6,'Total Revenue':500e6-20e6*age,'Diluted Average Shares':50e6})
+            statements['cashflow'].append({'date':date,'Operating Cash Flow':110e6-5e6*age,
+                'Capital Expenditure':-30e6,'Free Cash Flow':80e6-5e6*age})
+            statements['balance'].append({'date':date,'Total Debt':100e6,'Stockholders Equity':300e6,
+                'Cash Cash Equivalents And Short Term Investments':60e6})
+        records.append({'symbol':f'DEMO{i+1}', 'info':info, 'estimates':estimate,'statements':statements})
+    return {'as_of':now.isoformat(),'fx_rates':{'USD':1.0},'records':records,'demo':True}
+
+def replay(snapshot):
+    # Se evalúa a la fecha guardada, no se disfraza de cotización actual.
+    as_of=core.utc_date(snapshot['as_of'])
+    if as_of is None:
+        raise ValueError('Snapshot sin fecha válida')
+    rates=snapshot['fx_rates']
+    rows=[core.normalize(r['symbol'],r['info'],r.get('estimates',{}),rates.get,as_of) for r in snapshot['records']]
+    if len({r['symbol'] for r in rows}) != len(rows):
+        raise ValueError('Snapshot con tickers duplicados')
+    core.add_peers(rows)
+    inputs={r['symbol']:r for r in snapshot['records']}
+    for row in rows:
+        core.evaluate(row)
+        historical=conviction.historical_quality(inputs[row['symbol']].get('statements',{}),as_of)
+        row['historical']=historical
+        row['valuation']=conviction.scenarios(row,historical,rates,HORIZON,REQUIRED_RETURN)
+        row['sector_model']=sector_models.evaluate(row)
+    return rows
+
+def clean_json(value):
+    if isinstance(value,dict):
+        return {str(k):clean_json(v) for k,v in value.items()}
+    if isinstance(value,(list,tuple)):
+        return [clean_json(v) for v in value]
+    if isinstance(value,float) and not math.isfinite(value):
+        return None
+    return value
+
+def write_reports(rows, errors, snapshot, output):
+    output.mkdir(parents=True,exist_ok=True)
+    snapshot['valuation_parameters']={'horizon':HORIZON,'required_return':REQUIRED_RETURN}
+    for name,payload in [('resultados.json',{'rows':rows,'errors':errors,'as_of':snapshot['as_of']}),('snapshot.json',snapshot)]:
+        target=output/name
+        temp=target.with_suffix('.tmp')
+        temp.write_text(json.dumps(clean_json(payload),ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
+        temp.replace(target)
+    columns=['symbol','status','opportunity_score','coverage','market_cap_usd','avg_dollar_volume','pe',
+             'peer_count','fcf_yield','growth','growth_reliable','growth_source','growth_period','num_analysts',
+             'quote_at','financial_period','insider_buying','conviction','margin_of_safety','study_price_limit',
+             'sector_model','reasons']
+    with (output/'resultados.csv').open('w',encoding='utf-8-sig',newline='') as f:
+        writer=csv.DictWriter(f,fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            entry={k:row.get(k) for k in columns}
+            entry.update({k:row.get('valuation',{}).get(k) for k in ('conviction','margin_of_safety','study_price_limit')})
+            model=row.get('sector_model')
+            entry['sector_model']=f"{model['model']}: {model['status']}" if model else ''
+            entry['reasons']='; '.join(row['reasons'])
+            # Evita fórmulas al abrir textos externos en Excel.
+            entry={k:("'"+v if isinstance(v,str) and v.startswith(('=','+','-','@')) else v) for k,v in entry.items()}
+            writer.writerow(entry)
+
+def render_conviction_pdf(pdf, rows):
+    pdf.add_page()
+    pdf.start_section('Oportunidades con margen de seguridad')
+    section_header(pdf,'Seccion 6','6. Oportunidades con margen de seguridad')
+    pdf.set_font('Helvetica',size=10)
+    high=[r for r in rows if r.get('valuation',{}).get('conviction')=='prioridad_alta_para_estudio']
+    available=[r for r in rows if r.get('valuation',{}).get('valuation_available')]
+    pdf.multi_cell(pdf.epw,6,sanitize(f'{len(high)} empresas de prioridad alta para estudio. {len(available)} valoraciones calculables. Horizonte {HORIZON} anos; descuento {REQUIRED_RETURN:.0%}. Se exigen historial de beneficios/caja, ROIC, baja dilucion, deuda contenida, margen base >=25% y que ese margen aguante hipotesis peores (sensibilidad). No garantiza rentabilidad.'),new_x='LMARGIN',new_y='NEXT')
+    pdf.multi_cell(pdf.epw,6,'Escenarios de EPS normalizado por PER final. Crecimiento base limitado al 8%, favorable al 12% y adverso -5%. Sin dividendos, impuestos personales ni costes. Los supuestos son revisables y no representan probabilidades.',new_x='LMARGIN',new_y='NEXT')
+    if not high:
+        pdf.multi_cell(pdf.epw,6,'Ninguna empresa cumple todos los requisitos adicionales.',new_x='LMARGIN',new_y='NEXT')
+    for row in sorted(available,key=lambda r:(r['valuation']['conviction']!='prioridad_alta_para_estudio',-r['valuation']['margin_of_safety']))[:10]:
+        v=row['valuation']
+        if pdf.get_y()+60>pdf.h-pdf.b_margin:
+            pdf.add_page()
+        pdf.ln(5)
+        pdf.set_font('Helvetica','B',11)
+        pdf.multi_cell(pdf.epw,6,sanitize(f"{shown_name(row)} - {v['conviction']} | Margen base: {v['margin_of_safety']:.1%}"),new_x='LMARGIN',new_y='NEXT')
+        pdf.set_font('Helvetica',size=9)
+        pdf.multi_cell(pdf.epw,5,sanitize(f"Precio: {row['current_price']:.2f} {row['currency']} | Umbral con margen 25%: {v['study_price_limit']:.2f} {row['currency']} (no es una orden de compra)."),new_x='LMARGIN',new_y='NEXT')
+        for label,case in v['scenarios'].items():
+            pdf.multi_cell(pdf.epw,5,sanitize(f"{label}: EPS {case['eps_growth']:+.1%}/ano | PER {case['exit_pe']:.1f} | Precio final {case['terminal_price']:.2f} | Valor descontado {case['present_value']:.2f} {row['currency']} | Retorno anual precio {case['annual_price_return']:.1%}"),new_x='LMARGIN',new_y='NEXT')
+        rec=row.get('reconciliation')
+        if rec:
+            detail=f"{len(rec['checks'])} cifras comparadas" if rec['checks'] else rec.get('reason','')
+            pdf.multi_cell(pdf.epw,5,sanitize(f"Contraste con SEC (ingresos y beneficio neto): {rec['status']} - {detail}."),new_x='LMARGIN',new_y='NEXT')
+        sens=v.get('sensitivity')
+        if sens:
+            verdict='conclusion robusta' if sens['robust'] else 'conclusion fragil: depende de las hipotesis'
+            pdf.multi_cell(pdf.epw,5,sanitize(f"Sensibilidad ({sens['combinations']} combinaciones de crecimiento, PER, beneficio y tasa): margen minimo {sens['min_margin']:.1%}, mediano {sens['median_margin']:.1%}; margen >=25% en {sens['share_margin_ok']:.0%} de los casos - {verdict}."),new_x='LMARGIN',new_y='NEXT')
+        pdf.multi_cell(pdf.epw,5,sanitize('; '.join(v['conviction_reasons']) or 'Cumple reglas; pendiente de analisis cualitativo.'),new_x='LMARGIN',new_y='NEXT')
+    pdf.ln(4)
+    pdf.multi_cell(pdf.epw,5,'JSON contiene todas las empresas, calidad historica, motivos y datos insuficientes. Un precio calculado depende de los supuestos; no es un valor intrinseco verificado.',new_x='LMARGIN',new_y='NEXT')
+
+def main(argv=None):
+    parser=argparse.ArgumentParser(description='Screener auditable. No ejecuta órdenes. Envío solo con --send.')
+    parser.add_argument('--watchlist',type=Path,default=Path(WATCHLIST_FILE))
+    parser.add_argument('--output',type=Path,default=Path(__file__).parent/'informes')
+    source=parser.add_mutually_exclusive_group()
+    source.add_argument('--demo',action='store_true',help='Prueba sin red con empresas ficticias')
+    source.add_argument('--input',type=Path,help='Reevaluar snapshot guardado a su fecha original, sin red')
+    parser.add_argument('--pdf',action='store_true',help='Generar también el PDF (requiere fpdf2)')
+    parser.add_argument('--enrich',action='store_true',help='Noticias, notas recientes e insiders SEC para candidatas')
+    parser.add_argument('--translate',action='store_true',help='Traducción externa opcional, requiere --enrich')
+    parser.add_argument('--send',action='store_true',help='Enviar informe a tu Telegram configurado')
+    parser.add_argument('--resume',action='store_true',help='Reutilizar lo descargado hoy (cache/) si una ejecución anterior se interrumpió')
+    parser.add_argument('--only-changes',action='store_true',help='Con --send: no enviar si no hay cambios relevantes desde la decisión anterior')
+    parser.add_argument('--history',type=Path,default=forward_test.DEFAULT_HISTORY,help='Historial de decisiones (jsonl)')
+    parser.add_argument('--deep-limit',type=int,default=20,help='Máximo de empresas para ampliar históricos anuales (0 desactiva)')
+    parser.add_argument('--horizon',type=int,help='Horizonte de escenarios, 1–10 años (5 por defecto)')
+    parser.add_argument('--required-return',type=float,help='Tasa de descuento anual, 0.01–0.40 (0.12 por defecto)')
+    args=parser.parse_args(argv)
+    if args.send and not args.pdf:
+        parser.error('--send requiere --pdf')
+    global ENABLE_TRANSLATION, PDF_OUTPUT_DIR, DEEP_LIMIT, HORIZON, REQUIRED_RETURN, USE_CACHE
+    USE_CACHE=args.resume
+    if not 0<=args.deep_limit<=500 or (args.horizon is not None and not 1<=args.horizon<=10) or (args.required_return is not None and not .01<=args.required_return<=.4):
+        parser.error('Parámetros de análisis profundo o valoración fuera de rango')
+    DEEP_LIMIT,HORIZON,REQUIRED_RETURN=args.deep_limit,args.horizon or 5,args.required_return or .12
+    ENABLE_TRANSLATION=args.translate
+    PDF_OUTPUT_DIR=args.output.resolve()
+    if args.demo or args.input:
+        snapshot=demo_snapshot() if args.demo else json.loads(args.input.read_text(encoding='utf-8'))
+        if args.input:
+            params=snapshot.get('valuation_parameters',{})
+            HORIZON=args.horizon if args.horizon is not None else params.get('horizon',5)
+            REQUIRED_RETURN=args.required_return if args.required_return is not None else params.get('required_return',.12)
+        rows=replay(snapshot)
+        errors=[]
+        if args.enrich:
+            parser.error('--enrich no se combina con --demo/--input: deben ser reproducibles y sin red')
+    else:
+        rows,_=analyze(load_watchlist(args.watchlist))
+        errors,snapshot=analyze.errors,analyze.snapshot
+    if args.enrich:
+        enriched={r['symbol']:r for r in enrich_top(rank_top(rows))}
+        rows=[enriched.get(r['symbol'],r) for r in rows]
+    # Siempre deja resultados y errores auditables, incluso si fallan todos los tickers.
+    write_reports(rows,errors,snapshot,args.output)
+    print(f'Resultados: {(args.output/"resultados.json").resolve()}')
+    alert_list, has_changes = [], True
+    if not (args.demo or args.input):
+        # Solo ejecuciones reales: la demo y las reevaluaciones no son decisiones.
+        day = datetime.now(timezone.utc).date().isoformat()
+        previous = forward_test.previous_entry(args.history, day)
+        thematic = [r for r in rows if r['symbol'] in TRUMP_TRADE_THEMES]
+        entry = forward_test.record_run(
+            {'principales': rank_top(rows),
+             'pequena_capitalizacion': rank_top([r for r in rows if is_small_cap(r)]),
+             'cesta_tematica': rank_top(thematic, n=len(thematic), strict=False)},
+            args.history)
+        alert_list = alerts.compare(previous, entry)
+        text = alerts.format_text(alert_list, previous['date'] if previous else None, entry['date'])
+        args.output.mkdir(parents=True, exist_ok=True)
+        (args.output / 'alertas.md').write_text(text + '\n', encoding='utf-8')
+        print(text)
+        has_changes = bool(alert_list) or previous is None  # primera ejecucion: siempre se envia
+    if not rows:
+        print('No se obtuvieron datos válidos. Revisa resultados.json; no equivale a cero oportunidades.',file=sys.stderr)
+        return 2
+    path=args.output/'resultados.csv'
+    if args.pdf:
+        if FPDF is object:
+            print('CSV/JSON guardados. Falta fpdf2; instala requirements.txt.',file=sys.stderr)
+            return 3
+        top=rank_top(rows)
+        small=rank_top([r for r in rows if is_small_cap(r)])
+        thematic=rank_top([r for r in rows if r['symbol'] in TRUMP_TRADE_THEMES],strict=False)
+        path=Path(build_pdf(top,small,thematic,rows,None))
+    if args.send:
+        if args.only_changes and not has_changes:
+            print('Sin cambios relevantes desde la decisión anterior: no se envía el informe.')
+            return 0
+        extra = f' | {len(alert_list)} cambios' if alert_list else ''
+        send_telegram_document(str(path),f'Screener: {sum(r["eligible"] for r in rows)} candidatas para estudiar{extra}')
+    return 0
 
 if __name__ == "__main__":
-    generate_and_send_report()
+    raise SystemExit(main())

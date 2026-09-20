@@ -1,0 +1,8 @@
+# Ejemplo de sintaxis, NO selección de inversión.
+# Sustituye por tu universo real. Para pares se necesitan al menos cinco
+# OTRAS empresas de la misma industria y país, según clasificaciones Yahoo.
+AAPL
+MSFT
+GOOGL
+BRK-B
+# Las líneas duplicadas y los comentarios se eliminan automáticamente.
