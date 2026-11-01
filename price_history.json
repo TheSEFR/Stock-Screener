@@ -1421,6 +1421,480 @@
         "fiscal_year_start": "01/26",
         "fiscal_year_start_price": 15.930000305175781
       }
+    },
+    "2026-11": {
+      "AAPL": {
+        "price": 344.63,
+        "target": 332.3858,
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25",
+        "fiscal_year_start_price": 253.4936065673828
+      },
+      "MSFT": {
+        "price": 521.91,
+        "target": 632.89825,
+        "category": "Principales",
+        "fiscal_year_end": "06/27",
+        "fiscal_year_start": "07/26",
+        "fiscal_year_start_price": 383.5579528808594
+      },
+      "GOOGL": {
+        "price": 279.84,
+        "target": 406.54807,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 314.53814697265625
+      },
+      "AMZN": {
+        "price": 240.35,
+        "target": 326.92102,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 226.5
+      },
+      "NVDA": {
+        "price": 204.64,
+        "target": 328.95346,
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 186.03468322753906
+      },
+      "META": {
+        "price": 614.99,
+        "target": 848.3765,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 648.7399291992188
+      },
+      "TSLA": {
+        "price": 399.81,
+        "target": 411.8155,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 438.07000732421875
+      },
+      "AVGO": {
+        "price": 326.08,
+        "target": 530.14166,
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25",
+        "fiscal_year_start_price": 359.8742370605469
+      },
+      "ORCL": {
+        "price": 130.67,
+        "target": 235.8034,
+        "category": "Principales",
+        "fiscal_year_end": "05/27",
+        "fiscal_year_start": "06/26",
+        "fiscal_year_start_price": 246.37844848632812
+      },
+      "ADBE": {
+        "price": 250.23,
+        "target": 272.31375,
+        "category": "Principales",
+        "fiscal_year_end": "11/26",
+        "fiscal_year_start": "11/25",
+        "fiscal_year_start_price": 322.8500061035156
+      },
+      "CRM": {
+        "price": 229.17,
+        "target": 287.0836,
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26",
+        "fiscal_year_start_price": 209.3743896484375
+      },
+      "AMD": {
+        "price": 504.8,
+        "target": 640.208,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25",
+        "fiscal_year_start_price": 215.61000061035156
+      },
+      "INTC": {
+        "price": 65.76,
+        "target": 95.04651,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "12/25",
+        "fiscal_year_start_price": 36.68000030517578
+      },
+      "QCOM": {
+        "price": 164.79,
+        "target": 196.3,
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "09/25",
+        "fiscal_year_start_price": 161.92788696289062
+      },
+      "TXN": {
+        "price": 300.84,
+        "target": 336.86206,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 173.73533630371094
+      },
+      "CSCO": {
+        "price": 104.51,
+        "target": 136.16,
+        "category": "Principales",
+        "fiscal_year_end": "07/27",
+        "fiscal_year_start": "07/26",
+        "fiscal_year_start_price": 114.1275634765625
+      },
+      "IBM": {
+        "price": 257.81,
+        "target": 259.30347,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 285.680419921875
+      },
+      "NOW": {
+        "price": 105.12,
+        "target": 154.68826,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 147.4499969482422
+      },
+      "INTU": {
+        "price": 341.09,
+        "target": 407.75934,
+        "category": "Principales",
+        "fiscal_year_end": "07/27",
+        "fiscal_year_start": "08/26",
+        "fiscal_year_start_price": 316.91180419921875
+      },
+      "UBER": {
+        "price": 65.25,
+        "target": 100.85522,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 82.86000061035156
+      },
+      "SHOP": {
+        "price": 157.49,
+        "target": 176.77083,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 157.1999969482422
+      },
+      "NFLX": {
+        "price": 62.08,
+        "target": 84.76326,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 90.98999786376953
+      },
+      "PYPL": {
+        "price": 57.01,
+        "target": 57.10152,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 57.63169860839844
+      },
+      "SNOW": {
+        "price": 306.08,
+        "target": 426.5002,
+        "category": "Principales",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26",
+        "fiscal_year_start_price": 190.67999267578125
+      },
+      "PLTR": {
+        "price": 184.11,
+        "target": 212.50357,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 167.86000061035156
+      },
+      "ASML.AS": {
+        "price": 1412.8,
+        "target": 2097.4546,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 980.3114624023438
+      },
+      "SAP.DE": {
+        "price": 211.25,
+        "target": 238.93295,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 198.5796661376953
+      },
+      "SIE.DE": {
+        "price": 265.65,
+        "target": 305.1754,
+        "category": "Principales",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25",
+        "fiscal_year_start_price": 226.6318817138672
+      },
+      "MC.PA": {
+        "price": 387.0,
+        "target": 491.54074,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 631.5026245117188
+      },
+      "NESN.SW": {
+        "price": 84.7,
+        "target": 89.03636,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 73.44121551513672
+      },
+      "NOVN.SW": {
+        "price": 133.78,
+        "target": 126.76861,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 105.29608917236328
+      },
+      "OR.PA": {
+        "price": 436.95,
+        "target": 433.0,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 357.67340087890625
+      },
+      "AIR.PA": {
+        "price": 192.4,
+        "target": 231.95833,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 200.00433349609375
+      },
+      "BABA": {
+        "price": 98.04,
+        "target": 186.02312,
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26",
+        "fiscal_year_start_price": 122.60401153564453
+      },
+      "JD": {
+        "price": 25.68,
+        "target": 39.106308,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 28.513477325439453
+      },
+      "PDD": {
+        "price": 78.61,
+        "target": 115.2229,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 115.75
+      },
+      "BIDU": {
+        "price": 76.4,
+        "target": 134.95212,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 150.3000030517578
+      },
+      "TCEHY": {
+        "price": 49.04,
+        "target": 88.43912,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 79.62084197998047
+      },
+      "TSM": {
+        "price": 406.13,
+        "target": 584.39294,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 317.1165466308594
+      },
+      "SONY": {
+        "price": 25.3,
+        "target": 29.5,
+        "category": "Principales",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26",
+        "fiscal_year_start_price": 21.1200008392334
+      },
+      "005930.KS": {
+        "price": 225000.0,
+        "target": 480102.94,
+        "category": "Principales",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 128093.3125
+      },
+      "CLSK": {
+        "price": 7.67,
+        "target": 22.76667,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "09/26",
+        "fiscal_year_start": "10/25",
+        "fiscal_year_start_price": 14.59000015258789
+      },
+      "ROOT": {
+        "price": 51.76,
+        "target": 57.0,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 70.9000015258789
+      },
+      "VRA": {
+        "price": 6.6,
+        "target": 7.0,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "02/26",
+        "fiscal_year_start_price": 2.5399999618530273
+      },
+      "CVU": {
+        "price": 4.81,
+        "target": null,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 4.010000228881836
+      },
+      "IDN": {
+        "price": 2.365,
+        "target": 4.83333,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 6.610000133514404
+      },
+      "PRTS": {
+        "price": 6.9,
+        "target": 11.0,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "01/27",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 5.5
+      },
+      "BARK": {
+        "price": 8.0,
+        "target": 15.5,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "03/27",
+        "fiscal_year_start": "04/26",
+        "fiscal_year_start_price": 10.479999542236328
+      },
+      "SPOK": {
+        "price": 11.99,
+        "target": null,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 11.942435264587402
+      },
+      "NPK": {
+        "price": 147.82,
+        "target": 162.0,
+        "category": "Pequena capitalizacion",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 106.22158813476562
+      },
+      "DJT": {
+        "price": 5.59,
+        "target": null,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 13.770000457763672
+      },
+      "LMT": {
+        "price": 636.95,
+        "target": 652.5714,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 488.2283630371094
+      },
+      "RTX": {
+        "price": 199.8,
+        "target": 229.1739,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 185.24058532714844
+      },
+      "NOC": {
+        "price": 557.54,
+        "target": 636.0,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 578.6006469726562
+      },
+      "NUE": {
+        "price": 273.87,
+        "target": 293.5625,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 168.01136779785156
+      },
+      "XOM": {
+        "price": 187.25,
+        "target": 179.7143,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 120.23795318603516
+      },
+      "COIN": {
+        "price": 143.54,
+        "target": 205.48788,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 236.52999877929688
+      },
+      "JPM": {
+        "price": 337.04,
+        "target": 373.26086,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 319.32977294921875
+      },
+      "GEO": {
+        "price": 28.52,
+        "target": 39.0,
+        "category": "Cesta tematica (Trump trade)",
+        "fiscal_year_end": "12/26",
+        "fiscal_year_start": "01/26",
+        "fiscal_year_start_price": 15.930000305175781
+      }
     }
   },
   "yearly": {
